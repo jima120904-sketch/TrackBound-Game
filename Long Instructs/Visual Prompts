@@ -1,0 +1,688 @@
+# TRACKBOUND — COMPLETE WORLD, TRAIN, TERRAIN, AND RENDERING OVERHAUL
+
+Act as a senior AAA game-engine programmer, technical artist, procedural world-generation engineer, rendering engineer, physics programmer, and environmental designer. You are working on my existing game, Trackbound, a first-person 3D train-survival game written primarily in TypeScript.
+
+Your task is to substantially improve the actual existing game. The current implementation has serious visual and technical problems: the train interior and exterior look like poorly assembled blocks with gaps and awkward proportions, the player gets stuck on poorly designed collision geometry, and the terrain looks artificial, excessively smooth, repetitive, and loop-like. The game also lacks convincing large-scale mountains, realistic vegetation, sophisticated lighting, and a believable natural environment.
+
+I want Trackbound to approach the environmental realism, cinematic lighting, atmosphere, material quality, and sense of scale found in modern high-quality open-world games. Use the provided reference image as a visual target for its golden-hour lighting, volumetric sunlight, atmospheric depth, realistic water, natural forest silhouettes, and detailed ground surfaces. Do not copy its characters or scene; translate its visual qualities into Trackbound's railway-survival world.
+
+This is an engineering and visual-quality overhaul, not a request for a mockup, a standalone demo, a static image, or a list of suggestions. Work directly on the existing project.
+
+The most important requirements are:
+
+1. Rebuild the train's geometry and fix its collision problems.
+2. Replace the artificial terrain with expansive, natural, non-repeating procedural landscapes.
+3. Generate at least 1 km of terrain horizontally in every direction around the player.
+4. Generate enormous mountain ranges, including peaks thousands of metres above surrounding lowlands.
+5. Implement continuous terrain streaming, distant scenery, and a target of 256 managed terrain LOD chunks.
+6. Improve the entire rendering pipeline with realistic materials, lighting, shadows, atmospheric scattering, volumetric god rays, vegetation, wind, and water.
+7. Implement genuine hardware ray tracing only if the existing engine and graphics API actually support it.
+8. Preserve existing gameplay systems and make the changes work in the real game.
+9. Validate the implementation instead of claiming success merely because the code compiles.
+
+# 1. INSPECT THE EXISTING PROJECT BEFORE EDITING
+
+Before changing code, inspect the project structure, rendering engine, graphics API, terrain generation, train construction, character controller, collision system, world streaming, lighting, shaders, materials, and existing gameplay systems.
+
+Determine whether the project uses Three.js, Babylon.js, WebGL, WebGPU, or another engine or rendering framework. Identify the actual capabilities and constraints of the current implementation.
+
+Inspect how the train, player, railway, terrain, interactions, inventory, day/night cycle, structures, multiplayer, and persistence systems connect.
+
+Identify the underlying causes of the poor geometry, player collision traps, repetitive terrain, missing environmental detail, and inadequate lighting.
+
+Create a concise implementation plan, then execute it. Do not stop after writing a plan.
+
+Preserve working systems wherever possible, including first-person movement, train acceleration and braking, fuel handling, physical interactions, modular carriages, procedural structures, inventory, day/night progression, survival mechanics, multiplayer, and persistence if implemented.
+
+Reuse existing dependencies and assets where practical. Avoid unnecessary dependencies, incompatible libraries, invented APIs, or wholesale engine migration without compelling technical justification.
+
+Make changes incrementally, maintain clear interfaces, and ensure the project remains runnable throughout development.
+
+# 2. TRAIN EXTERIOR: REBUILD THE ACTUAL GEOMETRY
+
+The current train looks like a collection of poorly assembled rectangular blocks. Replace the visual construction with a coherent, deliberately designed locomotive and carriage system.
+
+Do not merely improve textures on top of broken geometry. Fix the geometry itself.
+
+Build a consistent train architecture with a strong silhouette, believable proportions, a structural frame, properly fitted exterior panels, correctly aligned doors and windows, and coherent connections between components.
+
+The exterior should feature appropriate details such as:
+
+- Properly proportioned wheels, axles, bogies, and suspension.
+- Realistic couplers and carriage connections.
+- Underbody equipment and structural supports.
+- Roof equipment, vents, pipes, and access hatches.
+- Window frames, door frames, handles, and panel seams.
+- Plausible mechanical assemblies and exposed components.
+- Consistent carriage dimensions and attachment points.
+- Subtle dents, scratches, rust, soot, grease, grime, and weathering.
+- Beveled edges and appropriate surface detail.
+
+Every component must attach to a defined local anchor point using a consistent coordinate system. Do not position every component through unrelated hardcoded world coordinates.
+
+Use appropriate mesh geometry for the main silhouette and important structural components. Procedural primitives are acceptable as construction foundations, but do not leave the final model looking like a pile of unmodified cubes.
+
+Avoid floating objects, visible gaps, intersecting panels, inconsistent scale, disconnected parts, inverted normals, z-fighting, and excessive coplanar surfaces.
+
+Create coherent designs for different carriage types rather than duplicating one generic rectangular carriage.
+
+The locomotive, freight cars, utility cars, storage cars, workshop cars, and living spaces should have distinct functional layouts where applicable.
+
+Preserve the existing train's functional interfaces, movement, attachment points, and gameplay behaviour wherever possible.
+
+# 3. TRAIN INTERIOR: BUILD A PROPERLY NAVIGABLE SPACE
+
+Rebuild the interior around a deliberate architectural layout.
+
+Create a continuous floor, properly aligned walls, a coherent ceiling, correctly fitted doorways, connected corridors, and appropriately positioned equipment.
+
+The interior should have consistent dimensions and realistic proportions. The player must be able to navigate through every intended passage without getting trapped between objects.
+
+Design the locomotive cabin and carriage interiors around their actual gameplay purposes. Include functional space for driving, fuel handling, storage, repairs, crafting, resting, and other existing systems as appropriate.
+
+Ensure that:
+
+- Floors are continuous and properly aligned.
+- Walls and ceilings do not contain accidental gaps.
+- Doorways have sufficient clearance.
+- Equipment does not obstruct intended walking routes.
+- Functional objects have deliberate positions and orientations.
+- Windows and doors fit their openings.
+- Furniture and storage have believable proportions.
+- Interior lighting is consistent with the surrounding environment.
+- Exterior and interior geometry agree spatially.
+
+Do not fill empty space with arbitrary cubes to create the illusion of detail.
+
+Prioritise a convincing architectural layout and good proportions before adding small decorative objects.
+
+# 4. COLLISION SYSTEM: ELIMINATE PLAYER SNAGGING
+
+The player currently gets stuck between blocky objects. This must be fixed at the collision-system level, not merely hidden through visual changes.
+
+Separate visual geometry from collision geometry.
+
+Use simplified, intentional collision shapes for floors, structural walls, door frames, major equipment, and objects that should genuinely block movement.
+
+Small decorative objects such as bolts, pipes, handles, trim, wires, and other surface details must not accidentally obstruct the character controller.
+
+Use a suitable character-controller approach, including capsule collision where appropriate, deliberate collision filtering, continuous floor support, and proper handling of moving platforms.
+
+Ensure that:
+
+- The player cannot fall through floors.
+- Doorways and corridors have sufficient clearance.
+- Collision meshes do not overlap in ways that trap the player.
+- Small geometric discontinuities do not cause snagging.
+- The player can navigate connected carriages where intended.
+- Jumping and clambering remain functional.
+- The character remains stable on a moving train.
+- The player cannot become trapped between neighbouring collision shapes.
+- Decorative objects do not create unintended invisible walls.
+
+Do not simply disable collisions globally.
+
+Implement collision debug visualisation if supported by the engine, so collision shapes and walkable areas can be inspected directly.
+
+Test every intended interior passage and the connections between train cars.
+
+# 5. PROCEDURAL TERRAIN: AT LEAST 1 KM IN EVERY HORIZONTAL DIRECTION
+
+Replace the current artificial, repetitive, excessively smooth terrain with a large-scale, spatially coherent procedural landscape.
+
+Maintain approximately 1,000 metres of generated and renderable terrain horizontally in every direction from the player:
+
+- At least 1 km forward.
+- At least 1 km behind.
+- At least 1 km to the left.
+- At least 1 km to the right.
+- Coverage in diagonal directions as well.
+
+Interpret this as a minimum horizontal radius of approximately 1 km around the player, or an equivalent square streaming region that covers the entire radius.
+
+The surrounding terrain must not consist only of a narrow strip beside the railway. The player must see a broad, continuous landscape on both sides of the track and when looking backwards.
+
+Terrain must stream continuously as the train travels. There must be no visible world boundary, circular island edge, abrupt terrain cutoff, empty horizon, repeating terrain loop, or obvious reset.
+
+Use deterministic, coordinate-based procedural generation. The same world coordinates must produce the same terrain when regenerated, unless a persistent world modification overrides the generated result.
+
+Use an appropriate combination of:
+
+- Large-scale regional elevation fields.
+- Continental or regional landform variation.
+- Domain-warped noise.
+- Ridged noise for mountain formation.
+- Multiple spatial frequencies.
+- Erosion-inspired shaping.
+- Natural drainage and valley systems.
+- Medium-scale hills and ridges.
+- Small-scale rocky and ground-surface detail.
+
+Do not simply combine several layers of smooth noise and call the result realistic.
+
+Avoid uniform rolling hills, regularly spaced peaks, perfect circular mountains, excessive smoothness, melted-looking terrain, repeated valleys, and obvious noise patterns.
+
+The terrain should have a believable hierarchy of large and small features. Mountain ranges should contain ridges, foothills, valleys, plateaus, and irregular peaks. Lowlands should connect naturally to higher elevations.
+
+Use erosion-inspired algorithms or physically informed shaping where feasible. Do not claim that ordinary noise mathematically simulates geological erosion.
+
+# 6. ENORMOUS MOUNTAINS AND REALISTIC LARGE-SCALE GEOGRAPHY
+
+Generate mountain ranges with hundreds to thousands of metres of vertical scale.
+
+Some major mountain peaks should reach approximately 2,000–4,000 metres above sea level or an equivalent local elevation datum, where appropriate. Other peaks should reach hundreds or thousands of metres of relief above nearby valleys.
+
+Clearly distinguish absolute elevation from relief relative to surrounding terrain. Do not simply raise the entire world by several thousand metres.
+
+Generate:
+
+- Distant mountain ranges visible across kilometres of landscape.
+- Steep mountain walls and irregular ridgelines.
+- Deep valleys and mountain passes.
+- Broad highland plateaus.
+- Rocky peaks and exposed cliffs.
+- Scree slopes and broken rock formations.
+- Natural foothill transitions.
+- Occasional dramatic escarpments.
+- Lowlands and flatter regions between mountain systems.
+
+Do not make every region mountainous. Mountains should form meaningful geographic regions rather than appearing uniformly across the entire world.
+
+The railway must be able to travel through these landscapes. Generate mountain passes, tunnels, bridges, elevated track sections, and routes around difficult terrain where appropriate.
+
+Terrain generation and railway generation must coordinate with each other. Do not allow mountains to intersect the track unexpectedly, create impossible railway gradients, or block the train.
+
+Preserve the terrain surrounding the railway rather than flattening a huge rectangular corridor. Make local cuttings, embankments, retaining structures, bridges, and tunnel entrances blend naturally into the landscape.
+
+If the project already has railway-generation logic, integrate with it instead of creating a conflicting second system.
+
+# 7. TERRAIN CHUNKS, STREAMING, AND 256-REGION LOD MANAGEMENT
+
+Implement or repair a robust terrain chunk streaming system.
+
+Maintain the full required terrain coverage around the player while managing approximately 256 terrain chunk regions in the active LOD management system, where practical.
+
+The target of 256 chunks refers to managed terrain regions across LOD levels. It does not mean that 256 full-resolution terrain meshes must remain loaded or rendered at maximum detail.
+
+Use the existing chunk architecture if it is suitable. Otherwise, implement a maintainable chunk manager with deterministic coordinates, explicit ownership, resource lifecycle management, and distance-based LOD.
+
+The system must:
+
+- Keep terrain near the player at high geometric detail.
+- Reduce geometric complexity with distance.
+- Preserve mountain silhouettes and large terrain features.
+- Avoid visible gaps between adjacent chunks.
+- Avoid abrupt height changes at chunk boundaries.
+- Avoid obvious LOD popping.
+- Use stable world-space coordinates.
+- Reuse geometry, buffers, and materials where possible.
+- Unload chunks outside the necessary streaming region safely.
+- Maintain accurate collision near the player and railway.
+- Reduce unnecessary physics calculations for distant terrain.
+- Preserve terrain edits independently of temporary chunk objects.
+- Avoid regenerating every chunk every frame.
+
+Use an appropriate technique such as quadtree LOD, terrain clipmaps, distance-based chunk meshes, geomipmapping, or another approach appropriate to the engine.
+
+Use shared border samples, stitching, skirts, or equivalent techniques to prevent cracks between terrain chunks at different LOD levels.
+
+Generate and update chunks incrementally using a prioritised queue. Prioritise the train's forward travel direction without creating missing terrain behind or beside the player.
+
+Where possible, perform expensive terrain-generation work away from the rendering thread without violating the engine's threading or graphics API requirements.
+
+If 256 regions exceed the practical memory or performance budget at the chosen chunk resolution, adjust chunk dimensions and per-LOD resolution while preserving the required terrain coverage. Explain the trade-off rather than silently reducing the world size.
+
+# 8. DISTANT TERRAIN AND THE VISUAL HORIZON
+
+The player must perceive a world extending far beyond the immediate 1 km terrain coverage.
+
+Use distant terrain meshes, simplified mountain geometry, far-field representations, or another suitable technique to maintain convincing scenery beyond the near terrain region.
+
+Implement:
+
+- Atmospheric perspective.
+- Distance-based fog blended with the sky.
+- A coherent sky and horizon.
+- Distant mountain silhouettes.
+- Appropriate distance-based material and lighting transitions.
+- Smooth blending between nearby terrain, distant terrain, and the atmosphere.
+
+Do not use fog to hide missing terrain or visible chunk boundaries.
+
+Do not surround a tiny terrain mesh with empty space and call it an expansive world.
+
+The terrain streaming system, distant scenery, and atmosphere must work together to create a coherent landscape extending over many kilometres.
+
+# 9. PHOTOREALISTIC RENDERING PIPELINE
+
+Upgrade the actual rendering pipeline to produce a high-quality, cinematic open-world environment.
+
+First inspect the existing engine, renderer, graphics API, shader architecture, and available capabilities.
+
+Implement the strongest practical combination of:
+
+- Physically based rendering.
+- High-quality direct lighting.
+- Physically coherent metallic and roughness materials.
+- Image-based lighting.
+- Environment reflections.
+- High-quality directional shadows.
+- Cascaded shadow maps for expansive terrain.
+- Contact shadows.
+- Ambient occlusion, such as GTAO, HBAO, or an equivalent technique.
+- Atmospheric scattering.
+- Volumetric lighting.
+- High-quality antialiasing.
+- Appropriate tone mapping.
+- Exposure control.
+- Screen-space reflections where useful.
+- Stable temporal techniques where supported.
+- Selective depth of field for cinematic moments.
+
+Do not simply add bloom, saturation, fog, and a skybox to the existing game.
+
+The result must have genuine improvements in geometry, material response, light transport approximations, and environmental detail.
+
+Avoid overly saturated colours, plastic-looking materials, uniformly shiny surfaces, excessively strong bloom, crushed shadows, and washed-out highlights.
+
+Use physically coherent lighting and materials wherever practical.
+
+# 10. SUNLIGHT, SKY, AND VOLUMETRIC GOD RAYS
+
+Implement a coherent sun-and-sky lighting system.
+
+The sun must be a defined directional light source with a visible solar disc in the sky. Its apparent position must agree with the direction of sunlight illuminating the world.
+
+The sun must cast appropriate shadows and change position according to the game's day/night cycle.
+
+Implement volumetric light scattering so sunlight creates visible shafts when partially occluded by trees, branches, mountain ridges, clouds, and structures.
+
+The intended effect should resemble the cinematic golden-hour sunlight in the reference image.
+
+Requirements:
+
+- Sun position follows the existing time-of-day system.
+- Sunlight direction, sky appearance, and shadows agree.
+- Volumetric shafts emerge naturally around occluding geometry.
+- Forests create irregular shafts between trees and branches.
+- Mountains interact naturally with the atmosphere.
+- Fog and atmospheric scattering vary with distance and weather.
+- Rays fade naturally instead of appearing as obvious rectangular screen-space artefacts.
+- The scene does not contain permanent artificial beams unrelated to occlusion.
+
+Use a suitable volumetric implementation, such as ray marching, froxel-based volumetrics, or a carefully implemented screen-space approximation, depending on the renderer.
+
+Do not falsely describe screen-space light shafts as physically accurate volumetric ray tracing.
+
+The sun must function as a genuine scene light source rather than a bright sphere pasted into the sky.
+
+Implement coherent lighting for dawn, midday, dusk, night, and changing weather.
+
+# 11. RAY TRACING: VERIFY REAL SUPPORT BEFORE IMPLEMENTING
+
+I want ray-traced visual quality wherever the existing engine and graphics stack can support it.
+
+First inspect the actual graphics API, engine version, browser capabilities if applicable, and available GPU features.
+
+If the game uses standard Three.js WebGL, do not pretend that adding a checkbox or naming a shader enables hardware-accelerated ray tracing. Standard WebGL does not expose a general-purpose hardware ray-tracing pipeline.
+
+If the project uses WebGPU, verify the actual availability of relevant ray-tracing extensions or supported techniques. Do not assume hardware ray tracing is automatically available merely because the renderer uses WebGPU.
+
+If the game runs in a native engine with a supported hardware ray-tracing API, investigate genuine ray-traced reflections, shadows, or global illumination.
+
+Where real hardware ray tracing is unavailable, implement the best practical hybrid rendering solution:
+
+- High-quality shadow mapping.
+- Screen-space reflections.
+- Ray-marched or screen-space ambient occlusion.
+- Probe-based environment reflections.
+- Light probes or baked indirect illumination where practical.
+- Volumetric scattering.
+- Contact shadows.
+- PBR materials.
+- Realistic sky illumination.
+- Appropriate temporal accumulation where stable.
+
+Provide graphics settings such as Standard, High, and Ultra where appropriate. Any ray-tracing option must accurately report whether genuine hardware ray tracing is available or a fallback is being used.
+
+Do not invent APIs, claim unsupported features work, or sacrifice the entire renderer to an experimental implementation.
+
+# 12. REALISTIC GRASS AND NATURAL GROUND VEGETATION
+
+Replace simplistic random green blades with a coherent ecosystem of grass, shrubs, flowers, ferns, reeds, fallen leaves, and other vegetation appropriate to the biome.
+
+Grass must not consist of identical upright green triangles scattered uniformly over the landscape.
+
+Implement a vegetation system with:
+
+- Multiple grass species and blade shapes.
+- Variation in height, width, curvature, and orientation.
+- Tapered blade silhouettes.
+- Natural clusters and irregular density.
+- Species-dependent colour distributions.
+- Appropriate material response and translucency where supported.
+- Small patches of bare soil, gravel, stones, and leaf litter.
+- Density influenced by terrain slope, elevation, moisture, soil, and biome.
+- Reduced grass on exposed rock, steep cliffs, railway ballast, and disturbed ground.
+- Natural transitions among grass, shrubs, soil, and forest floor.
+
+Use instanced geometry or an appropriate GPU-driven vegetation technique.
+
+Near the camera, vegetation should have convincing silhouettes and depth. At medium distances, use lower-detail instances. At long distances, use stable density representations and terrain-material blending rather than attempting to render every individual blade.
+
+Avoid obvious circular density boundaries, repeated clumps, uniform spacing, and visible LOD transitions.
+
+Grass must not obstruct the railway, cover functional controls, or create accidental player collision.
+
+# 13. WIND-DRIVEN VEGETATION AND A LIVING ENVIRONMENT
+
+Implement a unified environmental wind system driven by world-space wind direction, wind strength, gusts, and biome conditions.
+
+Wind should affect:
+
+- Individual grass blades.
+- Tall grass and reeds.
+- Shrubs.
+- Flexible branches.
+- Tree crowns.
+- Leaves and lightweight debris.
+- Hanging vegetation.
+- Other appropriate lightweight environmental objects.
+
+Vegetation must not simply rotate as rigid objects. Use vertex-shader deformation or equivalent techniques that bend flexible geometry according to height, stiffness, and wind direction.
+
+Grass should bend near its base and move more strongly toward the tips. Trees should exhibit subtle, slower crown movement. Strong gusts should create larger coordinated movements.
+
+Wind direction and animation must remain spatially coherent across neighbouring terrain chunks. Avoid visible motion discontinuities at chunk boundaries.
+
+Wind intensity should respond to biome and weather. Heavy trunks and rigid structures must remain appropriately stable.
+
+Use world-coordinate-based animation so vegetation does not visibly reset when chunks stream or LOD levels change.
+
+Wind must not arbitrarily push the train unless the existing physics system explicitly supports that gameplay mechanic.
+
+Make the environment feel alive through appropriate environmental audio and subtle interactions, not excessive animation of every object.
+
+# 14. REALISTIC FORESTS AND ECOLOGICAL DISTRIBUTION
+
+Generate realistic forests rather than repeating a few identical low-detail tree models.
+
+Create multiple species with variations in height, trunk diameter, branch structure, crown shape, foliage density, age, condition, and colour.
+
+Tree placement should respond to terrain slope, elevation, soil, moisture, and biome.
+
+Generate natural groupings, forest edges, clearings, mixed-density woodland, and isolated specimens.
+
+Include appropriate environmental details such as fallen logs, exposed roots, moss, stones, deadwood, undergrowth, and leaf litter.
+
+Use a three-level or equivalent detail hierarchy:
+
+1. Near-camera trees with high-quality silhouettes and visible branch structure.
+2. Medium-distance trees using efficient models and instancing.
+3. Distant forests represented with suitable low-detail geometry and stable density.
+
+Coordinate wind animation across all LOD levels.
+
+Do not generate identical trees at regular intervals or fill every square metre with vegetation.
+
+Include believable clearings, valleys, wetlands, rocky outcrops, and other ecological transitions.
+
+Forests must blend naturally into the surrounding terrain rather than forming obvious rectangular biome boundaries.
+
+# 15. REALISTIC WATER AND REFLECTIONS
+
+Lakes, rivers, and flooded structures should look like actual bodies of water.
+
+Implement:
+
+- Reflections of the sky and surrounding landscape.
+- Fresnel reflection that varies with viewing angle.
+- Small-scale normal variation.
+- Animated ripples and appropriate wave motion.
+- Wind-dependent surface roughness and wave intensity.
+- Depth-dependent colour and opacity.
+- Natural shoreline blending.
+- Reflection and refraction where practical.
+- Appropriate shoreline foam and disturbance.
+- Coherent atmospheric and lighting response.
+
+Water must not look like a flat, uniformly coloured reflective plane.
+
+Use screen-space reflections, environment probes, planar reflections, or other techniques according to their quality and performance characteristics.
+
+Do not promise perfect off-screen reflections from a screen-space method. Use appropriate fallbacks for objects outside the reflection buffer.
+
+Water motion must remain continuous across streamed terrain regions and respond coherently to world-space wind.
+
+Ensure water surfaces integrate correctly with terrain elevations and shoreline geometry.
+
+# 16. REALISTIC TERRAIN MATERIALS AND GEOLOGICAL DETAIL
+
+Create a terrain-material system that combines geology, elevation, slope, moisture, and biome.
+
+Support natural blends among:
+
+- Grass and fertile soil.
+- Dry soil and mud.
+- Gravel and railway ballast.
+- Rocky surfaces.
+- Exposed bedrock.
+- Scree and mountain rubble.
+- Moss and damp surfaces.
+- Fallen leaves and forest litter.
+- Snow and ice where appropriate.
+
+Use tiling detail textures, world-space or triplanar mapping on steep terrain, and multiple material scales.
+
+Avoid stretched textures on mountains, oversized repeated patterns, obvious texture seams, and uniform colour across entire hillsides.
+
+Materials must react appropriately to light. Wet mud should look different from dry soil. Rough stone must not behave like polished metal. Snow must not look like white plastic.
+
+Where texture assets are unavailable, implement carefully designed procedural material variation rather than relying on a single flat colour.
+
+Make terrain geometry, surface materials, and vegetation distribution work together to create a coherent environment.
+
+# 17. ATMOSPHERIC LIGHTING, WEATHER, AND CINEMATIC PRESENTATION
+
+Match the reference image's environmental qualities without forcing every scene to look like sunset.
+
+Implement a coherent day/night and weather system supporting:
+
+- Warm golden-hour illumination.
+- Cooler daylight.
+- Subtle blue atmospheric haze at distance.
+- Volumetric morning mist in appropriate valleys.
+- Sunlight filtered through forest canopies.
+- Realistic sky gradients.
+- Night lighting that preserves darkness without making navigation impossible.
+- Weather-dependent fog, wind, cloud cover, and visibility.
+
+Use physically sensible exposure and tone mapping. Bright skies should not wash out the landscape. Dark interiors should retain useful detail without looking artificially flat.
+
+Avoid distracting exposure pumping.
+
+Preserve the existing survival loop. Nighttime must retain its atmosphere and threat level rather than becoming permanently bright and cinematic.
+
+Atmospheric effects must enhance a coherent world, not hide missing geometry, broken terrain streaming, or low-quality assets.
+
+# 18. APPLY THE SAME VISUAL QUALITY TO THE TRAIN
+
+Apply the improved rendering pipeline to the locomotive and carriages.
+
+Train materials should include painted metal with subtle roughness variation, exposed and worn metal, rubber, glass, wood, soot, grease, rust, and grime where appropriate.
+
+Use believable dirt accumulation in creases, panel joints, around mechanical components, and near the undercarriage.
+
+Use subtle edge wear rather than uniform procedural noise.
+
+Train surfaces must reflect the surrounding environment appropriately and respond consistently to direct and indirect lighting.
+
+Implement believable interior lighting, including natural window light, furnace illumination, lamps, and ambient darkness.
+
+The train must remain a coherent 3D model with proper geometry and collision. Do not use rendering tricks to hide bad modelling.
+
+Ensure that player navigation remains smooth and decorative details do not obstruct walkways.
+
+# 19. PERFORMANCE AND HARDWARE SCALABILITY
+
+My PC is powerful enough to support a substantially more ambitious visual environment than the current implementation. Do not artificially constrain the world to tiny terrain regions or extremely low-quality terrain solely to accommodate weak hardware.
+
+However, do not interpret this as permission to create unbounded numbers of high-resolution meshes, draw calls, materials, collision objects, or shader operations.
+
+Profile and optimise intelligently.
+
+Use:
+
+- Instancing for repeated vegetation and small environmental assets.
+- Shared materials and reusable geometry.
+- Frustum and distance culling.
+- Appropriate LOD.
+- Incremental terrain and vegetation streaming.
+- Efficient resource lifecycle management.
+- Cached deterministic terrain generation.
+- Collision and physics work focused on nearby relevant objects.
+- Avoidance of unnecessary per-frame allocations.
+- Prioritised generation of terrain ahead of the train.
+- Configurable shadow, reflection, volumetric, and vegetation quality.
+- Suitable render-resolution and antialiasing options.
+
+Do not regenerate entire terrain meshes or forests every frame.
+
+Avoid synchronous shader compilation or mass resource creation that causes major stutters.
+
+If the project uses WebGL or WebGPU, respect actual browser graphics and memory constraints. If it uses a native engine, use the engine's appropriate rendering and terrain capabilities.
+
+The objective is a visually expansive world with smooth gameplay, not maximum polygon count for its own sake.
+
+# 20. INTEGRATE WITH EXISTING GAMEPLAY
+
+Preserve the existing Trackbound gameplay systems wherever possible.
+
+The new terrain and rendering systems must remain compatible with the train, track generation, character controller, interactables, inventory, survival mechanics, day/night cycle, structures, and multiplayer if implemented.
+
+The railway must remain the central gameplay route.
+
+Terrain generation must account for track elevation, curvature, bridges, embankments, cuttings, retaining walls, and tunnels.
+
+The player must be able to move through the train without collision traps.
+
+Decorative geometry and vegetation must not obstruct functional controls, doors, or intended paths.
+
+Streaming must not cause persistent structures, player modifications, or important gameplay objects to disappear permanently.
+
+Deterministic generation must work with the existing save system.
+
+If a generated object is modified or destroyed, ensure that the modification persists through chunk unloading and regeneration wherever the existing gameplay design requires it.
+
+# 21. AUTOMATED TESTING AND VISUAL VALIDATION
+
+Do not consider the task complete merely because the code compiles.
+
+Run the actual game and inspect the rendered result wherever the available environment permits.
+
+Test at least the following scenarios:
+
+- Open terrain at midday.
+- A forest during golden hour.
+- A mountain valley with distant peaks.
+- A river or lake with reflections.
+- A windy forest with visible vegetation movement.
+- The locomotive exterior in direct sunlight.
+- The train interior with natural and artificial lighting.
+- Nighttime with appropriate darkness and atmospheric lighting.
+- Continuous travel across terrain chunk boundaries.
+- Long-distance travel through multiple biomes.
+- Movement through all intended train-interior passages.
+- Jumping and movement between carriages if supported.
+
+Validate the terrain system:
+
+- At least approximately 1 km of horizontal terrain coverage in every direction.
+- No visible terrain holes or abrupt chunk boundaries.
+- No circular world edges.
+- No obvious repeating terrain loops.
+- Distinct terrain scales from local detail to major mountain ranges.
+- Mountains reaching hundreds to thousands of metres of relief where appropriate.
+- Stable deterministic generation.
+- Seamless chunk transitions between LOD levels.
+- Persistent distant mountain silhouettes.
+- Correct integration between railway and terrain.
+
+Validate the train:
+
+- No obvious geometry gaps or floating components.
+- Consistent exterior proportions.
+- A coherent, navigable interior.
+- Continuous floors and aligned walls.
+- Correctly connected carriages.
+- Believable materials and deliberate geometry.
+- No arbitrary clutter obstructing walkways.
+- No repeatable collision traps.
+
+Validate the renderer:
+
+- Correct normals and lighting.
+- Believable material roughness and reflections.
+- Natural grass rather than flat green blades.
+- Varied, non-repeating tree placement.
+- Visible, coherent vegetation motion.
+- Stable shadows.
+- Appropriate reflection behaviour.
+- Volumetric rays that respond to occlusion.
+- No major LOD popping.
+- No excessive fog concealing missing scenery.
+- No major rendering stalls during ordinary streaming.
+
+Create automated tests for deterministic generation, terrain boundaries, collision behaviour, resource lifecycle, and sustained movement through the world wherever practical.
+
+If screenshots can be captured, compare the actual rendered game with the reference image's lighting, atmosphere, water, vegetation, and overall realism.
+
+If you cannot execute the game in the current environment, clearly distinguish code changes from tests actually performed. Do not claim visual or performance validation that did not occur.
+
+# 22. IMPLEMENTATION STRATEGY
+
+Implement the overhaul in stages. Do not attempt a reckless all-at-once rewrite that breaks the existing game.
+
+Stage 1: Inspect the codebase, establish a baseline, fix the train's geometry and interior layout, and eliminate player collision traps.
+
+Stage 2: Replace the terrain generator with coherent, non-repetitive terrain, realistic elevation hierarchies, and large mountain ranges.
+
+Stage 3: Implement continuous terrain streaming with at least 1 km of horizontal coverage in every direction, distant scenery, and the target of 256 managed terrain LOD regions.
+
+Stage 4: Integrate the railway with the new terrain, including appropriate track gradients, mountain passes, bridges, cuttings, and tunnels.
+
+Stage 5: Upgrade the renderer with coherent sun and sky lighting, PBR materials, high-quality shadows, atmospheric scattering, and volumetric god rays.
+
+Stage 6: Implement realistic grass, varied forests, wind-driven vegetation, geological material blending, and believable water reflections.
+
+Stage 7: Investigate genuine ray tracing if the graphics API supports it. Otherwise, implement the best practical hybrid rendering techniques available.
+
+Stage 8: Profile the entire game, correct visual artefacts, test collision and streaming, and validate the complete experience.
+
+Within each stage, make changes in manageable increments. Verify that the project remains functional before proceeding.
+
+# 23. FINAL IMPLEMENTATION REPORT
+
+When finished, report:
+
+- Which files were modified.
+- Which major systems were replaced or improved.
+- How the train geometry and collision system were corrected.
+- How the terrain generator and chunk streaming work.
+- Whether the 1 km coverage requirement was verified.
+- How the 256-region LOD target was implemented.
+- How mountains and distant scenery are generated.
+- Which lighting, reflection, volumetric, and vegetation systems genuinely work.
+- Whether hardware ray tracing is actually supported and implemented.
+- Which scenarios were tested.
+- Any remaining limitations, performance concerns, or incomplete features.
+
+Do not describe a planned feature as completed unless it is implemented. Do not report tests as passed unless they were actually executed.
+
+The finished result should be a coherent, expansive, atmospheric survival world with convincing train geometry, realistic terrain, enormous mountains, cinematic sunlight, natural vegetation, moving grass and trees, believable water, and smooth first-person navigation.
+
+The game must remain a functional continuation of the existing Trackbound project, not a replacement demo.
+
+Begin by inspecting the existing codebase. Then implement the overhaul directly in the project, prioritising structural correctness and playable functionality before expensive visual effects.
+
+The goal is to make players believe they are travelling through a vast, living world aboard a real machine that they depend on for survival.

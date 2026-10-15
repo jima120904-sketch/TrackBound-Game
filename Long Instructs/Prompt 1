@@ -1,0 +1,2774 @@
+
+TRACKBOUND
+Comprehensive Game Development Blueprint
+Document type: Game Design Document (GDD) and Technical Systems SpecificationGenre: First-person survival, procedural exploration, train-base management, atmospheric horror, cooperative PvETarget experience: A peaceful, tactile railway adventure by day that becomes a tense survival experience after darkPlayers: 1–4 cooperative playersWorld structure: Procedurally generated, effectively infinite railway through large, persistent-feeling biomesDesign principle: The train is simultaneously the player's home, transportation, crafting platform, progression system, and primary defensive asset.
+
+1. Core Design Pillars
+1.1 Tactile First-Person Immersion
+Every important gameplay action should feel like a physical task performed by a person in a real environment.
+The player does not simply press an interaction key to refuel the locomotive. They open the furnace, collect individual fuel pieces, transfer them into the firebox, close the door, inspect the pressure gauge, and adjust the controls.
+Interactions should have three parts:
+	1	Physical initiation: The player approaches an object, looks at it, and begins an action.
+	2	Visible execution: A first-person animation, physical object movement, sound, or tool action communicates what is happening.
+	3	Simulation result: The world state changes based on the actual action, available resources, and machine condition.
+A successful interaction should not be purely cosmetic. Opening a furnace door should affect combustion, repairing a hull should remove physical damage from a train module, and pulling a brake lever should change the locomotive's braking force.
+Interaction priority
+Priority
+Requirement
+Example
+P0
+Essential survival actions are physically represented
+Refueling, steering, repairing
+P0
+Every critical action provides clear feedback
+Gauge movement, sparks, pressure changes
+P1
+Objects have convincing physical responses
+Coal tumbles into the firebox
+P1
+Players can observe and help each other
+One player operates controls while another fuels
+P2
+Optional animations add personality without slowing play excessively
+Wiping a gauge, warming hands near a furnace
+Do not make every interaction equally long. Repeated survival tasks should be tactile but efficient, while rare or dangerous tasks can demand more deliberate input.
+1.2 A Train That Is a Genuine Moving Base
+The train is not merely a vehicle with a decorative interior. It is a modular, persistent construction that travels through the world.
+Players should be able to:
+	•	Attach and detach train cars.
+	•	Install engines, storage, workshops, sleeping areas, kitchens, defensive platforms, generators, and special modules.
+	•	Physically transport collected resources and machinery.
+	•	Customize interior layouts and exterior armor.
+	•	Repair individual parts of the train.
+	•	Expand their storage and production capacity at the cost of added mass, power consumption, or maintenance.
+	•	Lose individual modules to damage if protection fails.
+Core trade-off: More train capacity improves long-term survival, but a larger train costs more fuel, requires more maintenance, and is harder to defend during The Pursuit.
+1.3 A Two-Mode World
+Trackbound uses two contrasting gameplay modes.
+System
+Day
+Normal night
+Night 5: The Pursuit
+Primary mood
+Cozy exploration
+Isolation and dread
+Desperate coordinated survival
+Train operation
+Routine maintenance
+Maintain heat, light and readiness
+Maximum performance and emergency repairs
+Off-train exploration
+Generally safe
+Hostile beyond the safe perimeter
+Extremely dangerous
+Ordinary hostile AI
+Mostly dormant
+Activates outside the perimeter
+Active, with pursuit-specific threats
+Train safe zone
+Not needed for ordinary survival
+15 m peaceful perimeter
+Overridden by the pursuit event
+Resource priorities
+Exploration and expansion
+Fuel, repairs, lighting and preparation
+Ammunition, engine performance and hull integrity
+Intended pacing
+Discovery
+Suspense
+High-intensity combat
+The main emotional rhythm should be explore, collect, build, prepare, survive, recover.
+1.4 Cooperative Specialization Without Mandatory Roles
+Four players should be able to coordinate naturally, but none should be permanently locked into a job.
+The game defines four recommended specializations—Engineer, Scavenger, Defender, and Medic/Chef—but all players can perform essential actions. Role benefits improve efficiency and reliability rather than granting exclusive permission to use important equipment.
+
+2. Core Gameplay Loop and Progression
+2.1 The Main Gameplay Loop
+	1	Travel: Operate the locomotive and move through a biome.
+	2	Discover: Detect abandoned facilities, stations, resource deposits, and landmarks.
+	3	Stop and explore: Secure the train, prepare tools, leave the safe perimeter, and investigate.
+	4	Scavenge: Search modular interiors, unlock containers, salvage machines, and gather resources.
+	5	Return: Bring recovered cargo and surviving players back to the train.
+	6	Convert: Smelt, repair, cook, craft, upgrade, or install recovered equipment.
+	7	Prepare: Inspect fuel, train integrity, ammunition, food, and tools before night.
+	8	Survive: Defend the train's systems and manage any expedition-related consequences.
+	9	Reach a station: Commit persistent progression, replenish specialized resources, and unlock further travel options.
+2.2 Primary Resources
+Resource
+Sources
+Uses
+Storage behavior
+Raw coal
+Mines, depots, cargo yards
+Locomotive fuel
+Heavy, stackable
+Wood
+Forests, abandoned structures
+Emergency fuel, basic construction
+Bulky
+Scrap metal
+Wreckage, factories, rail yards
+Repairs, simple machinery
+Stackable
+Refined metal
+Processing stations, smelters
+Structural upgrades, advanced crafting
+Dense and valuable
+Mechanical parts
+Engines, machinery, sealed crates
+Components, repairs, upgrades
+Stackable
+Electrical components
+Factories, control rooms, generators
+Lighting, sensors, automated defenses
+Valuable
+Medical supplies
+Clinics, lockers, aid stations
+Healing, treatment
+Limited inventory
+Food ingredients
+Farms, kitchens, supply caches
+Cooking, recovery
+Perishable where appropriate
+Anomalous residue
+High-risk locations and special encounters
+Exotic research and crafting
+Rare; protected storage recommended
+Engine blueprints
+High-tier safes, laboratories, rare events
+Unlocks new equipment recipes
+Unique progression items
+Resources should have distinct visual silhouettes. Coal should be identifiable as individual dark chunks; refined components should be metallic and clearly distinguishable from ordinary scrap.
+2.3 Time and Travel
+Use an explicit simulation clock rather than allowing the clock to drift with frame rate.
+Recommended starting configuration:
+Parameter
+Default
+Full day/night cycle
+48 real minutes
+Day duration
+30 minutes
+Night duration
+18 minutes
+Normal night starts
+At the end of the daytime interval
+Pursuit night frequency
+Every fifth night
+Standard exploration stop
+5–15 minutes of real time
+Biome segment length
+10–100 km
+Structural world streaming chunk
+1 km
+Train safe-zone radius
+15 m from the train's safe-zone origin
+These are initial balancing values, not immutable rules. Time should advance according to the authoritative server clock.
+A long 100 km biome may span several travel sessions. Stations and persistent checkpoints therefore matter more than the arbitrary end of a biome.
+
+3. World Architecture and Infinite Railway
+3.1 World Coordinates and Streaming
+Generate the railway as a sequence of contiguous world chunks.
+Each chunk owns:
+	•	Track spline sections.
+	•	Terrain and landscape meshes.
+	•	Biome parameters.
+	•	Resource nodes.
+	•	Structure placement candidates.
+	•	Local ambient audio settings.
+	•	Environmental effects.
+	•	Navigation data for spawned structures.
+	•	A deterministic generation seed.
+	•	Persistent object identifiers for stateful world objects.
+Use a local coordinate frame around the train and stream distant chunks in and out. This avoids accumulating large floating-point coordinate errors during long-distance travel.
+Recommended streaming configuration
+Parameter
+Starting value
+Rule
+Chunk length
+1,000 m
+Fixed generation unit
+Preload distance ahead
+3 km
+Generate terrain and track before arrival
+Active scenery distance
+2 km
+Full detail near the player
+Distant visual terrain
+Up to 8 km
+Lower detail and simplified collision
+Structure interaction distance
+Determined per facility
+Stream collision and detailed interiors only when needed
+Persistent object key
+World seed + chunk ID + object ID
+Must remain stable across travel
+Coordinate origin
+Near the active train
+Rebase periodically
+The values should be adjusted to the engine, target hardware, visibility, and train speed.
+3.2 Biome Generation
+Treat each biome as a parameterized environment rather than a collection of unrelated assets.
+A biome definition should include:
+BiomeDefinition
+    BiomeID
+    MinLengthKm
+    MaxLengthKm
+    TerrainProfile
+    TrackProfile
+    VegetationPalette
+    RockPalette
+    WaterProfile
+    WeatherProfile
+    DayLightingProfile
+    NightLightingProfile
+    AmbientAudioProfile
+    ResourceAbundance
+    StructureWeights
+    HostileEncounterWeights
+    StationArchetypes
+    MusicProfile
+Example biome profiles
+Biome
+Visual character
+Environmental challenge
+Signature structures
+Pine Expanse
+Towering evergreens, moss and mist
+Mud, low visibility during rain
+Logging camps, abandoned depots
+Highland Basin
+Huge valleys, rivers and distant cliffs
+Steep gradients and exposed tracks
+Hydro-dams, service stations
+Frostline
+Deep snow, frozen water and blue twilight
+Reduced traction, snow accumulation
+Research bunkers, mountain tunnels
+Rustbelt
+Industrial wasteland, slag fields and dead factories
+Debris, poor visibility and hazardous interiors
+Automated factories, rail yards
+Salt Desert
+Open vistas, dry gullies and weathered infrastructure
+Heat, dust and scarce resources
+Pump stations, dry reservoirs
+Blackstone Range
+Dark rock faces, tunnels and sparse vegetation
+Rockfalls and confined visibility
+Mountain tunnels, mining facilities
+Biome transitions should be gradual. Change vegetation density, soil composition, lighting, distant silhouettes, ambient sound, and structure density over several hundred meters rather than abruptly swapping the environment.
+3.3 Procedural Generation Loops
+Separate world generation into several deterministic loops.
+Loop A: Macro generation
+Runs when an unexplored route segment is first generated.
+	1	Select the next biome using biome-transition weights.
+	2	Roll a biome length between its minimum and maximum.
+	3	Generate an approximate terrain and elevation profile.
+	4	Construct a feasible railway alignment.
+	5	Reserve mandatory service stops and special landmarks.
+	6	Define regional resource and weather modifiers.
+Loop B: Trackside generation
+Runs independently for each 1 km chunk.
+	1	Read the chunk seed.
+	2	Generate eligible structure candidates.
+	3	Test railway clearance and terrain suitability.
+	4	Apply spacing, rarity, and biome rules.
+	5	Assign an archetype and spatial footprint.
+	6	Reserve navigation, interaction, and unloading areas.
+	7	Generate resource nodes and environmental details.
+	8	Save deterministic placement metadata.
+Loop C: Structure generation
+Runs when a structure's footprint is established.
+	1	Select the structure archetype.
+	2	Generate its floor and room topology.
+	3	Apply the archetype's room compatibility rules.
+	4	Place entrances, exits, hazards, containers, and landmarks.
+	5	Check connectivity and traversal requirements.
+	6	Assign loot and enemy-spawn points.
+	7	Generate local navigation data.
+	8	Validate that all required rooms are reachable.
+	9	Cache the resulting layout for reuse.
+Loop D: Runtime simulation
+Runs for active structures and the train.
+	•	Update moving machinery, lights, doors, power, and environmental hazards.
+	•	Run hostile AI only when appropriate.
+	•	Simulate train physics and critical subsystems.
+	•	Reduce update frequency for distant or inactive systems.
+	•	Persist meaningful state changes.
+Deterministic generation rule
+Use separate random-number streams for independent generation tasks.
+WorldSeed
+ ├── BiomeSeed(chunkID)
+ ├── TracksideSeed(chunkID)
+ ├── StructureSeed(structureID)
+ ├── InteriorSeed(structureID)
+ └── LootSeed(structureID, containerID)
+If a player re-enters a previously visited structure, its layout and original loot assignment must not reroll merely because the structure unloads and reloads.
+Important: Deterministic generation does not replace persistence. If a player empties a crate, that crate must remain empty after unloading and returning.
+3.4 Railway Clearance and Placement Constraints
+Every structure candidate must pass a spatial validation stage.
+Required checks:
+	•	Minimum distance from the track centerline.
+	•	Clearance from train-car collision volumes.
+	•	Safe approach and parking areas where required.
+	•	Sufficient surrounding space for its intended footprint.
+	•	Reachable entry points for the expected player locomotion abilities.
+	•	Valid NavMesh generation or an equivalent navigation solution.
+	•	No placement inside mandatory track geometry.
+	•	No collision with another critical landmark.
+	•	No blocked exit caused by terrain or another generated room.
+A structure may be rejected, repositioned, or regenerated using a bounded number of retries. When all retries fail, skip it rather than breaking railway continuity.
+
+4. Dynamic Procedural Structures
+4.1 Structure Spawning Architecture
+Structures should be placed through a layered selection system instead of choosing a random building independently at every position.
+The generation system evaluates five factors:
+	1	Biome compatibility: Does the structure belong in this environment?
+	2	Travel distance: Has enough distance passed since the last structure of this type?
+	3	World pacing: Has the player recently encountered another major landmark?
+	4	Progression relevance: Is the structure's reward appropriate for the game's current progression?
+	5	Spatial feasibility: Can the facility physically fit beside the railway?
+Structure placement pipeline
+Chunk initialized
+       |
+       v
+Read biome definition and chunk seed
+       |
+       v
+Generate candidate placement locations
+       |
+       v
+Check spacing, terrain and track clearance
+       |
+       v
+Select structure archetype by weighted rules
+       |
+       v
+Generate modular interior layout
+       |
+       v
+Assign hazards, containers and loot
+       |
+       v
+Validate navigation and required exits
+       |
+       v
+Register persistent structure ID
+       |
+       v
+Stream into the world when in range
+Initial encounter-density targets
+Structure class
+Target frequency
+Typical footprint
+Purpose
+Minor landmark
+Every 1–3 km
+10–40 m
+Small discoveries and basic supplies
+Small scavenging site
+Every 3–6 km
+30–100 m
+Short expeditions
+Major facility
+Every 8–15 km
+100–400 m
+Multi-room exploration and meaningful rewards
+Landmark facility
+Every 20–40 km
+300–1,000 m
+Distinctive encounters and rare progression items
+Major station
+Every 10–30 km, with controlled variation
+Varies
+Refueling, trading, crafting and persistent saving
+These frequencies are independent target ranges, not hard guarantees. A chunk may contain multiple small sites but should rarely contain several high-value facilities next to one another.
+A critical station, story landmark, or required progression structure should use a reservation system instead of relying solely on random rolls.
+Weighted structure selection
+For each valid structure candidate, compute:
+\[ W_i=B_i \times D_i \times P_i \times R_i \]
+Where:
+	•	\(B_i\) = biome compatibility.
+	•	\(D_i\) = distance and spacing modifier.
+	•	\(P_i\) = pacing modifier.
+	•	\(R_i\) = progression or regional relevance.
+Normalize the eligible weights and select an archetype using the structure seed.
+Example starting weights for a Rustbelt region:
+Archetype
+Relative weight
+Overgrown Rail Yard
+30
+Decaying Automated Factory
+25
+Abandoned Maintenance Depot
+20
+Flooded Utility Complex
+15
+Collapsed Mountain Tunnel
+10
+These weights are relative probabilities before spatial constraints and pacing modifiers.
+4.2 Structure Archetype A: Abandoned Hydro-Dams
+Fantasy: A gigantic concrete dam spans a valley, its service structures half-submerged and its machinery still producing intermittent electrical signals.
+Primary biome: Highland Basin, Pine Expanse, and select mountainous regions.
+Gameplay identity: Vertical exploration, electrical puzzles, water hazards, and high-value mechanical salvage.
+Modular zones
+Zone
+Description
+Gameplay function
+Dam Approach
+Broken access road and railway service siding
+Exterior resource collection
+Turbine Hall
+Large industrial chamber with accessible machines
+Mechanical-part salvage
+Control Gallery
+Switchboards, gauges, and maintenance consoles
+Electrical restoration puzzle
+Spillway
+Wet concrete channels and deep-water sections
+Hazardous traversal
+Maintenance Shaft
+Narrow stairs and ladders
+Vertical navigation
+Lower Intake
+Flooded machinery compartments
+High-risk loot
+Generator Annex
+Auxiliary turbines and power converters
+Electrical components
+Security Vault
+Reinforced room with controlled access
+Rare containers
+Environmental interactions
+	•	Dam gates may be partially open, creating loud water flows and dangerous currents.
+	•	Some rooms are unpowered; restoring local power activates lights, lifts, or doors.
+	•	Exposed electrical equipment becomes hazardous when submerged.
+	•	Players can salvage intact generators for train upgrades.
+	•	Lower rooms may require waterproof equipment or a manually operated drainage pump.
+A facility should not require restoring the entire dam to obtain ordinary rewards. The major puzzle should be optional unless explicitly designed as a story gate.
+Signature reward
+A high-quality generator component or turbine assembly that can improve the train's onboard electrical output. The best versions are rare and require exploration of the most dangerous compartments.
+4.3 Structure Archetype B: Overgrown Rail Yards
+Fantasy: Multiple abandoned tracks disappear under grass, ivy, rusted wagons, and collapsed gantries.
+Primary biome: Pine Expanse, Rustbelt, and biome transition regions.
+Gameplay identity: Wide exploration spaces, movable machinery, cargo salvage, and dangerous sightlines.
+Modular zones
+Zone
+Description
+Gameplay function
+Signal Office
+Small building overlooking the tracks
+Maps, keys and documentation
+Freight Platform
+Stacked cargo and broken pallets
+Scrap and basic supplies
+Switching Tower
+Elevated signal controls
+Rail information and optional puzzles
+Repair Shed
+Workbenches and tool storage
+Mechanical salvage
+Freight Warehouse
+Large indoor cargo space
+Crates and containers
+Derailment Field
+Scattered train cars
+Risky salvage
+Crane Yard
+Damaged gantry cranes
+Heavy salvage puzzle
+Dispatcher Room
+Locked administrative interior
+Access tokens and advanced parts
+Procedural variations
+	•	One or more siding tracks may be blocked by derailed cars.
+	•	Container placement can form different navigable routes through each yard.
+	•	Power may be restored to selected signal systems.
+	•	Crane controls may operate a movable cargo container.
+	•	Some freight wagons can contain useful supplies; others may be empty, flooded, or structurally unsafe.
+Signature reward
+Large quantities of scrap and mechanical parts, with occasional intact wagon modules or rare rail equipment components.
+The rail yard is an important reliable early-game scavenging location, not a guaranteed source of high-tier equipment.
+4.4 Structure Archetype C: Collapsed Mountain Tunnels
+Fantasy: A vast rail tunnel disappears beneath fractured rock, with the original tunnel lights failing in long, irregular sequences.
+Primary biome: Highland Basin, Frostline, and Blackstone Range.
+Gameplay identity: Constrained navigation, darkness, structural instability, and resource-intensive exploration.
+Modular zones
+Zone
+Description
+Gameplay function
+Portal Entrance
+Fallen masonry and damaged signal lights
+Initial entry
+Service Passage
+Narrow maintenance route
+Alternate traversal
+Main Tunnel
+Long, dark central passage
+Navigation challenge
+Equipment Alcove
+Small maintenance rooms
+Common salvage
+Collapsed Section
+Broken track and rubble
+Route obstruction
+Emergency Shelter
+Old worker refuge
+Food, tools and medical supplies
+Signal Chamber
+Rail control equipment
+Electrical loot
+Geological Cavity
+Natural rock chamber
+Rare mineral deposits
+Gameplay hazards
+	•	Loose rock may fall following impacts or loud machinery.
+	•	Dust clouds temporarily reduce visibility.
+	•	Standing in unstable rubble can trigger a collapse.
+	•	Emergency doors may obstruct the shortest route.
+	•	Players can clear light debris using tools, but major collapses require a separate detour.
+Do not use random instant-death rockfalls. Provide environmental warning cues, an avoidance window, and predictable safe traversal rules.
+Signature reward
+Mining tools, specialized structural components, geological materials, and occasionally rare underground research caches.
+4.5 Structure Archetype D: Decaying Automated Factories
+Fantasy: An enormous industrial complex continues operating long after its workforce disappeared. Robotic arms repeat broken motions and conveyor belts move objects through unlit assembly halls.
+Primary biome: Rustbelt, Salt Desert, and rare isolated industrial enclaves.
+Gameplay identity: Powered machinery, hazardous automation, loot-routing puzzles, and the strongest concentration of industrial components.
+Modular zones
+Zone
+Description
+Gameplay function
+Receiving Bay
+Freight intake and cargo scanners
+Basic loot
+Conveyor Floor
+Moving belts and robotic work cells
+Traversal hazard
+Assembly Hall
+Large production room
+High scrap density
+Maintenance Corridor
+Control panels and access points
+Alternate routes
+Machine Control Room
+Facility automation interface
+Power and machinery puzzle
+Quality Laboratory
+Precision machinery and instruments
+Advanced components
+Server Room
+Electrical and data equipment
+Rare electronics
+Prototype Vault
+Reinforced equipment storage
+High-tier loot
+Facility states
+Each factory instance rolls one of several operational configurations:
+	•	Dead: Most machinery is inactive. Exploration is relatively safe.
+	•	Intermittent: Equipment activates in timed bursts.
+	•	Powered: Conveyor belts and automated equipment remain active.
+	•	Corrupted: Machines behave unpredictably according to explicit hazard rules.
+Facility state changes traversal and reward access. It should not determine the entire interior layout; this lets one room layout support several distinct encounters.
+Signature reward
+High-quality electronics, precision mechanical parts, industrial tools, and the possibility of rare engine research.
+4.6 Structure Archetype E: Buried Research Complex
+Fantasy: A partially buried research installation with sealed doors, abandoned laboratories, and inexplicable signals from its lower levels.
+Primary biome: Frostline, Blackstone Range, and rare late-game regions.
+Gameplay identity: High-risk exploration, access control, anomalous hazards, and rare progression rewards.
+Zone
+Description
+Gameplay function
+Surface Entrance
+Damaged concrete entrance and reception
+First access point
+Security Checkpoint
+Locked doors and old security equipment
+Keycard or manual bypass
+Laboratories
+Research benches and specimen storage
+Research materials
+Observation Room
+Reinforced glass and viewing systems
+Environmental storytelling
+Power Core
+Experimental power equipment
+Advanced components
+Containment Wing
+Sealed anomalous chambers
+High risk and rare rewards
+Records Archive
+Terminals and documents
+Research information
+Prototype Storage
+Secure equipment room
+Engine blueprints
+The complex may contain evidence of the world's history, but collectible lore should not be required to operate the train or enjoy ordinary survival gameplay.
+
+5. Randomized Interior Layout System
+5.1 Modular Interior Kit
+Build interiors using reusable, grid-compatible room modules rather than constructing a new handcrafted layout for every generated structure.
+Recommended room dimensions should align to a common spatial grid. For example, a 2 m base grid can support 4 m, 8 m, and 12 m room spans, with larger halls using predefined footprints.
+Every module requires a standardized connector system.
+RoomModule
+    ModuleID
+    ArchetypeTags
+    RoomRole
+    Footprint
+    DoorConnectors[]
+    StairConnectors[]
+    VerticalLinks[]
+    NavigationAnchors[]
+    LootAnchors[]
+    HazardAnchors[]
+    LightingProfile
+    PropSetID
+    MinimumClearance
+    StructuralIntegrity
+Room roles:
+	•	Entry
+	•	Corridor
+	•	Intersection
+	•	Small room
+	•	Large hall
+	•	Storage room
+	•	Hazard room
+	•	Utility room
+	•	Puzzle room
+	•	Reward room
+	•	Dead end
+	•	Exit
+	•	Vertical connector
+Modules must share compatible door heights, corridor widths, connector orientations, and collision expectations.
+5.2 Graph-Based Layout Generation
+Represent the interior as a graph.
+	•	Nodes represent rooms.
+	•	Edges represent doors, corridors, ladders, stairs, or other connections.
+	•	Node attributes define room type and gameplay purpose.
+	•	Edge attributes define access restrictions and traversal costs.
+Generation algorithm
+	1	Select a start room and one or more exits.
+	2	Generate a target room count based on facility size.
+	3	Build a connected graph with an appropriate number of branches.
+	4	Assign mandatory room roles.
+	5	Fill remaining nodes with compatible room modules.
+	6	Apply the archetype's constraints.
+	7	Place optional loops, shortcuts, and hidden rooms.
+	8	Assign door states, hazards, and containers.
+	9	Embed the graph into physical space.
+	10	Validate paths from each entrance to at least one exit.
+	11	Generate or update the NavMesh.
+	12	Reject the layout if essential traversal conditions fail.
+A graph that connects every room mathematically can still be physically impossible. Validate the actual generated geometry, not just the abstract topology.
+Example topology targets
+Facility
+Typical rooms
+Graph structure
+Optional content
+Small depot
+4–8
+Simple branch
+1 hidden container
+Rail yard building
+8–16
+Several connected wings
+2–4 optional rooms
+Hydro-dam
+12–24
+Vertical branches and loops
+2–5 restricted areas
+Automated factory
+16–32
+Large halls plus side rooms
+3–6 hidden or locked areas
+Research complex
+20–40
+Multi-level, gated branches
+4–8 advanced areas
+These values describe generated room modules, not the number of individual prop clusters.
+5.3 Constraints That Make Layouts Believable
+Enforce logical spatial rules:
+	•	A turbine hall needs sufficient ceiling height.
+	•	A laboratory should not connect directly to an exposed cliff without an intended transition.
+	•	An elevator shaft requires valid upper and lower connections.
+	•	A reward room should not spawn without an accessible route.
+	•	A locked room may require a key, lockpick, power restoration, or alternate entrance.
+	•	A maintenance room should be close to equipment it services.
+	•	Water hazards need consistent water volumes and valid navigation boundaries.
+	•	Every mandatory exit must remain reachable using the player's intended capabilities.
+	•	A room may have randomized props, but its physical collision layout must remain valid.
+NavMesh integration
+Generate a NavMesh or equivalent navigation representation after physical assembly and collision validation.
+For large facilities, build navigation per room module and stitch compatible navigation boundaries when rooms connect. Rebuild only the affected area when a movable object changes traversal.
+Mark surfaces according to traversal capability:
+	•	Walkable.
+	•	Slippery.
+	•	Deep mud or snow.
+	•	Water.
+	•	Ladder-only.
+	•	Drop-down only.
+	•	Unreachable to ordinary enemies.
+	•	Reserved for specialized enemy movement.
+Players may be able to clamber over obstacles that the ordinary enemy NavMesh cannot traverse. Preserve intentional player advantage without allowing the enemy to become permanently stuck in an otherwise valid encounter.
+5.4 Controlled Randomness
+Pure randomness creates repetitive incoherence. Use authored variability instead.
+Each facility should contain:
+	•	1–2 recognizable defining features.
+	•	2–4 optional routes or room variants.
+	•	1–3 meaningful environmental hazards, depending on facility size.
+	•	1 clear point of entry.
+	•	At least one viable exit route.
+	•	A loot distribution shaped by the facility's purpose.
+	•	A low-probability special discovery.
+For example, every hydro-dam should read as a hydro-dam from outside. The dam's turbine arrangement, maintenance routes, water state, and control-room layout can differ between instances.
+5.5 Generation Validation
+A generated interior must pass automated validation before it becomes available for gameplay.
+Test
+Pass condition
+Graph connectivity
+All required rooms connect to the entry or a valid alternate route
+Exit reachability
+At least one expected exit can be reached
+Door compatibility
+Connector types and dimensions match
+Collision
+No essential interactable is buried in geometry
+Clearance
+Minimum player dimensions can pass through every mandatory route
+Loot access
+Every container is reachable by its intended access method
+Hazard validity
+Hazards do not permanently block mandatory progress
+Enemy navigation
+Spawned enemy archetypes can reach their designed patrol areas
+Resource budget
+Room count, lights, props and AI remain within performance limits
+Reproducibility
+Same seed reproduces the same initial arrangement
+If a layout fails validation, retry a bounded number of times using deterministic alternate seeds, then load a known-safe archetype fallback.
+
+6. Loot Tiers, Containers, and Reward Economy
+6.1 Loot Tier Definitions
+Loot rarity should communicate progression, not just inventory value.
+Tier
+Name
+Probability target
+Purpose
+T1
+Common Scrap
+55–70% of ordinary loot rolls
+Sustains basic repairs and fuel-related crafting
+T2
+Functional Components
+20–30%
+Unlocks useful equipment and standard upgrades
+T3
+Advanced Technology
+5–12%
+Enables major train improvements
+T4
+Exotic Engine Technology
+0.5–3%
+Creates long-term goals and late-game progression
+These percentages are broad target ranges for item-roll rarity. Individual containers use their own loot tables, so the ranges should not be implemented as one global roll that ignores container type.
+T4 blueprints should be exceptionally rare in ordinary salvage containers. Major facilities, difficult encounters, secured vaults, and special progression events can use more generous conditional rewards.
+6.2 Tier 1: Common Scrap
+Item
+Sources
+Primary use
+Bent steel plates
+Rail yards, wrecked wagons
+Basic exterior repairs
+Wire bundles
+Depots, electrical cabinets
+Simple electrical crafting
+Scrap bolts
+All industrial structures
+Fasteners and repair recipes
+Broken gears
+Machinery rooms
+Low-tier mechanisms
+Timber offcuts
+Forest sites, wooden structures
+Emergency fuel and basic construction
+Coal chunks
+Mines, freight depots
+Locomotive fuel
+Damaged pipes
+Dams, factories
+Basic plumbing and crafting
+Rusted hand tools
+Maintenance sheds
+Crafting material
+Empty cans and containers
+Kitchens, service buildings
+Minor crafting or recycling
+Cloth remnants
+Worker shelters, medical areas
+Bandages and simple utility crafting
+T1 items should be plentiful enough that common wear does not permanently cripple the train. They should still demand inventory space and collection effort.
+6.3 Tier 2: Functional Components
+Item
+Sources
+Primary use
+Intact gear assemblies
+Rail yards, repair sheds
+Mechanical upgrades
+Copper wire coils
+Control rooms, factories
+Electrical systems
+Replacement bearings
+Machinery rooms
+Engine and running-gear repairs
+Pressure valves
+Hydro-dams, locomotives
+Boiler and pressure systems
+Battery modules
+Factories, research buildings
+Power storage
+Reinforced coupling pins
+Freight depots
+Car connections
+Welding rods
+Maintenance facilities
+Hull repair consumables
+Filter assemblies
+Utility complexes
+Environmental equipment
+Medical kits
+Shelters, clinics
+Immediate treatment
+Mechanical lockpicks
+Maintenance lockers, specialist traders
+Unlocking compatible locks
+T2 loot begins to specialize the train. A player can continue without every component, but better machinery reduces operational friction.
+6.4 Tier 3: Advanced Technology
+Item
+Sources
+Primary use
+Industrial servo assembly
+Automated factories
+Automated equipment and turrets
+High-capacity generator core
+Hydro-dams, industrial vaults
+Greater onboard power output
+Precision pressure regulator
+Dams, advanced engine rooms
+More efficient locomotive operation
+Advanced insulation panels
+Research complexes
+Reduced heat loss and improved protection
+Heavy turret actuator
+Factories, defended depots
+Mounted defensive weapons
+High-grade alloy plate
+Rare industrial stockpiles
+Reinforced car armor
+Anomaly-resistant circuitry
+Research facilities
+Protection against special environmental effects
+Engine diagnostic computer
+Secure workshops
+Advanced fault detection
+Medical synthesis module
+Research facilities
+Improved medical crafting
+Prototype tool head
+Laboratories, engineering vaults
+High-performance specialized tools
+T3 should improve several areas of gameplay without rendering T1 and T2 materials obsolete. Advanced upgrades should still consume common resources.
+6.5 Tier 4: Exotic Engine Blueprints
+Blueprint
+Unlock
+Benefit
+Limitation
+Refined Combustion Chamber
+Advanced engine assembly
+Improves fuel conversion efficiency
+Requires rare heat-resistant components
+Reinforced Traction System
+Locomotive running gear
+Better traction under load
+Increased maintenance cost
+Anomalous Shielding Array
+Experimental power module
+Weakens selected anomaly effects
+Consumes significant electrical power
+Predictive Targeting Computer
+Heavy weapons network
+Improves automated target tracking
+Requires sensor calibration and ammunition
+Thermal Recovery System
+Advanced locomotive module
+Recovers a portion of otherwise wasted heat
+Adds mass and complexity
+Experimental Pressure Drive
+Rare endgame engine configuration
+Provides strong performance under extreme loads
+High failure risk if neglected
+Blueprints are permanent recipe unlocks; the crafted equipment still requires materials and construction time.
+A blueprint should not be a generic item that is silently consumed without feedback. When acquired, show its name, its newly unlocked recipe, and the facility or workbench required to build it.
+Progression protection: The server should record blueprint ownership and unlocked recipes separately from ordinary inventory so unique progression does not disappear because a player dropped the item or disconnected.
+6.6 Container Types
+Container
+Opening method
+Typical tiers
+Special rule
+Open Scrap Pile
+Direct collection
+T1
+Fast, exposed, low reward
+Tool Locker
+Simple latch or key
+T1–T2
+Common maintenance items
+Wooden Supply Crate
+Break or open
+T1–T2
+May contain damaged supplies
+Industrial Crate
+Standard interaction; heavy lid
+T1–T3
+Higher capacity and industrial loot bias
+Sealed Electrical Cabinet
+Repair, power, or access key
+T2–T3
+Specialized electrical loot
+Locked Safe
+Lockpick minigame
+T2–T4
+Rare components and protected loot
+Reinforced Vault
+Keycard, puzzle, or advanced bypass
+T3–T4
+Limited, high-value rewards
+Medical Cabinet
+Latch or lock
+T1–T3
+Medical loot bias
+Freight Container
+Door, cutting, or access tool
+T1–T3
+Bulk cargo and possible oversized items
+Prototype Storage Case
+Research access or difficult bypass
+T3–T4
+Blueprints and exotic components
+Locked Safe System
+A locked safe should have a physical lock mechanism and an explicit interaction state.
+Initial implementation:
+	1	Player targets the safe and chooses to inspect or unlock it.
+	2	The game checks whether the player has a compatible lockpick.
+	3	A first-person close-up interaction begins.
+	4	The player manipulates the lock through a short, skill-based minigame.
+	5	Incorrect attempts generate audio and may increase the chance of attracting attention outside the safe zone.
+	6	A successful opening changes the safe's persistent state to Unlocked.
+	7	Loot is generated from the safe's assigned table and saved as a container inventory.
+Avoid repeatedly rolling loot every time the safe is opened. Loot should be determined when the structure is generated or when the container is first activated, then persisted.
+Industrial Crate System
+Industrial crates are heavy, conspicuous, and associated with manufacturing areas.
+	•	Opening takes longer than a small toolbox.
+	•	Their large size supports multiple item stacks or a few bulky components.
+	•	Selected crates may require a wrench, cutting tool, or powered opener.
+	•	Some crates can be physically relocated with suitable equipment.
+	•	Crates may be empty, damaged, or sealed, depending on their archetype.
+	•	Their reward quality is controlled by facility type and security level.
+6.7 Loot Assignment Algorithm
+Use a two-stage reward system: assign a container's category first, then roll its contents from the corresponding table.
+Container Spawn
+    |
+    v
+Resolve structure archetype
+    |
+    v
+Resolve container archetype
+    |
+    v
+Determine security and rarity modifiers
+    |
+    v
+Select loot table
+    |
+    v
+Roll item count and item entries
+    |
+    v
+Apply stack sizes and container capacity
+    |
+    v
+Validate progression and rarity constraints
+    |
+    v
+Persist container inventory
+Example: Industrial Crate loot profile
+Reward group
+Roll weight
+Example contents
+Common raw materials
+45
+Scrap plates, bolts, pipes, timber
+Mechanical components
+30
+Bearings, gears, pressure valves
+Electrical components
+15
+Wire coils, batteries, control parts
+Advanced industrial item
+8
+Servo, alloy plate, diagnostic component
+Exceptional find
+2
+Rare prototype component
+Weights are normalized within this particular crate table, not added to the global loot-tier probabilities. A T4 blueprint should usually use a special condition or dedicated table rather than appearing routinely in ordinary industrial crates.
+Apply rarity modifiers only within controlled limits. A late-game region may improve component quality, but it should not turn every common crate into an endgame loot box.
+7. Night Mechanics and the Train Safe Zone
+7.1 The Day/Night State Machine
+The day/night cycle is a gameplay system, not simply a change in sky color. Every transition should affect environmental presentation, audio, player expectations, and selected survival systems.
+World time states
+State
+Duration target
+Lighting
+Audio
+Gameplay behavior
+Dawn
+3 min
+Low-angle warm sunlight emerging through haze
+Birds and distant environmental ambience gradually return
+Night AI disengages; exploration becomes safer
+Day
+24 min
+Full daylight and long-distance visibility
+Wind, wildlife, water and train ambience
+Normal scavenging and construction
+Dusk
+3 min
+Sunlight fades, shadows lengthen and distant terrain loses contrast
+Wildlife gradually quiets; wind and metallic creaks become more noticeable
+Preparation warning phase
+Night
+15 min
+Low ambient light, localized illumination and restricted visibility
+Sparse ambience, distant sounds and stronger spatial audio
+Ordinary threats activate beyond the safe perimeter
+Pursuit overlay
+Entire designated fifth night
+Darker contrast, threat silhouettes and train-mounted light sources
+Mechanical impacts, pursuit audio and emergency alarms
+Overrides normal-night safety rules
+The durations in the table provide a 45-minute reference cycle when added together. For implementation, choose a single consistent cycle configuration and use it everywhere.
+Recommended final clock: 30 minutes of day, consisting of 3 minutes of dawn transition, 24 minutes of full day, and 3 minutes of dusk transition, followed by 18 minutes of night. The full cycle is 48 real minutes.
+For the 18-minute night, use these internal phases:
+	•	0–3 minutes: Nightfall.
+	•	3–12 minutes: Deep night.
+	•	12–15 minutes: Predawn tension.
+	•	15–18 minutes: Dawn transition.
+Use these four internal phases without changing the overall night duration. The nighttime phase names are not additional time added to the cycle.
+Lighting implementation
+Use a physically plausible directional light, environment lighting, fog, and localized artificial lights.
+	•	Day: Broad environmental fill, warmer sun at low angles, stronger visibility, and visible distant landscape landmarks.
+	•	Dusk: Reduce directional intensity progressively; allow the sky to retain color after direct sunlight weakens.
+	•	Night: Remove most environmental fill, reduce distant contrast, and use carefully controlled light sources around the train and points of interest.
+	•	Dawn: Reveal silhouettes before restoring full ambient illumination, allowing players to recognize the environment before the world fully brightens.
+Avoid simply making everything black at night. The threat comes from limited information, not from making navigation impossible.
+Fog profiles
+Phase
+Fog density
+Visibility target
+Purpose
+Clear day
+Low
+500–2,000 m or more where terrain permits
+Exploration and landscape appreciation
+Misty day
+Low–medium
+150–500 m
+Atmospheric variety
+Dusk
+Medium
+100–300 m
+Visual transition
+Deep night
+Medium–high
+30–120 m in suitable terrain
+Conceals movement and limits distant threat detection
+Dense fog event
+High
+10–40 m in selected locations
+Optional special encounter modifier
+Fog values are expressed as approximate visibility targets rather than engine-specific density numbers. Terrain, light intensity, weather, and the player's light source must all be considered together.
+Do not apply maximum fog uniformly across every biome. A clear Frostline night and a wet Rustbelt night should have different visual identities.
+7.2 The Radio/Thermal Perimeter
+The train produces a fictional combination of radio interference, thermal leakage, mechanical noise, and localized energy that hostile night entities avoid.
+This is a gameplay rule with a consistent physical manifestation.
+Core rule: On normal nights, players on the train or within 15 meters of its exterior are completely protected from ordinary night-hostile attacks.
+The train perimeter should be calculated from the train's actual protective hull, not just its center point. Otherwise, a player standing beside the rear car of a long train may incorrectly be considered outside the safe zone.
+Safe-zone definition
+Let \(d\) be the shortest distance between the player's protective collision capsule and any protected train module.
+\[ \text{InsideSafeZone} = d \leq 15 \text{ m} \]
+For multiplayer, evaluate the rule on the authoritative server.
+Recommended behavior:
+	•	On the train: Always considered inside the perimeter.
+	•	Within 15 m of a protected car: Protected on normal nights.
+	•	Outside 15 m: Night threat evaluation begins.
+	•	Crossing the boundary: Trigger radio static and an audio cue.
+	•	Returning inside: Immediately stop new ordinary hostile damage and disengage pursuit.
+	•	Standing near a safe-zone boundary: Use a small hysteresis band to prevent repeated activation due to movement noise or collision jitter.
+For example, a player may enter the safe zone at 15 m but need to move beyond 16 m to reactivate night threats. This avoids rapid state switching while preserving the nominal 15 m boundary.
+Perimeter feedback
+Provide three independent feedback channels.
+Visual: A subtle distortion in distant particles, faint radio-like interference, or a very slight change in illumination.
+Audio: A stable low-frequency mechanical hum and reduced high-frequency environmental detail near the train.
+Gameplay: Ordinary hostile entities cannot damage protected players, and standard night encounters disengage at the boundary.
+The boundary should not appear as a bright, opaque force field. It should remain believable within Trackbound's industrial, atmospheric presentation.
+Multiple train modules
+A player is protected when within range of any active protected module. This is important for modular trains with multiple cars.
+If the train's protective generator is damaged, ordinary night safety should not silently disappear. Use a clear system state:
+Perimeter state
+Effect
+Powered
+Standard 15 m perimeter
+Degraded
+Perimeter remains active but its audio and warning systems become unstable
+Offline
+During normal nights, begin a visible and audible emergency shutdown warning before changing safety rules, if the design permits this failure
+Pursuit override
+Ordinary safe-zone rules are suspended during The Pursuit
+For the initial version, I recommend that normal nights remain completely safe around the train, even when optional train equipment is damaged. Use the Pursuit as the primary deliberate exception. This prevents ordinary maintenance failures from unexpectedly undermining the core safety contract.
+7.3 Activating Off-Train Threats
+Ordinary night enemies should not spawn directly in front of the player or materialize visibly from an empty corridor.
+Threat activation pipeline
+	1	Detect that the server-authoritative player has crossed the safe-zone boundary.
+	2	Check whether the world is in a hostile night phase.
+	3	Start an encounter evaluation timer.
+	4	Read biome, visibility, player noise, elapsed time outside, and current encounter budget.
+	5	Select an eligible enemy archetype.
+	6	Choose a hidden spawn point behind appropriate cover.
+	7	Verify valid navigation and a viable route to the player.
+	8	Spawn the entity outside direct view unless the encounter intentionally includes an emergence animation.
+	9	Transition into active pursuit or investigation.
+Initial threat pressure values
+Parameter
+Starting value
+Boundary-crossing grace period
+1.5 seconds
+First hostile warning
+2–5 seconds after a valid trigger
+Initial pursuit distance
+10–35 m behind cover where possible
+Standard encounter budget
+1–3 ordinary enemies per isolated player
+Additional enemy budget
+Scaled cautiously with party size
+Maximum ordinary pursuit distance
+100–150 m from the player, subject to navigation
+Safe-zone disengagement
+Immediate protection; brief retreat behavior for enemies
+Spawn visibility
+Prefer behind occluders; do not require off-screen spawning if the world provides no valid cover
+Treat these as tunable starting values. Encounters must account for nearby players, existing enemies, and whether the player is returning with a group.
+Encounter pressure
+Define a threat score to control intensity:
+\[ P = B + N + T + V + A \]
+Where:
+	•	\(B\) = biome threat contribution.
+	•	\(N\) = player noise contribution.
+	•	\(T\) = time spent outside the perimeter.
+	•	\(V\) = low-visibility contribution.
+	•	\(A\) = anomaly or special-event modifier.
+The score selects an encounter band, not a deterministic number of enemies. Randomness should choose among equivalent encounters within the selected band.
+Noise should make players easier to locate, not automatically summon enemies anywhere in the world.
+7.4 Hostile Archetypes: The Forgotten
+The Forgotten — Shared AI Architecture
+Use a common enemy controller with specialized perception and locomotion capabilities.
+Dormant
+   |
+   v
+Investigating
+   |
+   v
+Tracking
+   |
+   v
+Pursuing
+   |
+   v
+Attacking
+   |
+   v
+Searching / Recovering
+   |
+   v
+Retreating or Despawning
+Each enemy owns a finite state machine. Perception, movement, animation, and combat should be separate components so new enemies can reuse the same architecture.
+Enemy A: Shamblers
+Identity: Slow, human-like figures with distorted movement, damaged clothing, and an unsettling lack of urgency.
+Primary role: Basic threat that punishes careless movement and prolonged scavenging.
+	•	Perception: Primarily sight and moderate sound detection.
+	•	Movement: Slow NavMesh pursuit with occasional stumbling animations.
+	•	Attack: Short-range melee strike.
+	•	Weakness: Poor acceleration and limited ability to traverse certain obstacles.
+	•	Counterplay: Keep moving, use cover, return to the train, or interrupt them with a suitable defensive tool.
+	•	Spawn preference: Open yards, roads, forest edges, and industrial lots.
+Their combat should be readable. A wind-up animation must signal an imminent hit.
+Enemy B: Stalkers
+Identity: Thin, fast-moving entities that remain at the edge of visibility and target isolated light sources.
+Primary role: Pressure players who rely on handheld illumination without a backup plan.
+	•	Perception: Sight, light emission, and line of sight.
+	•	Movement: Fast when crossing open areas; cautious when approaching a target.
+	•	Attack: Brief lunge, followed by a retreat or repositioning maneuver.
+	•	Special ability: Disrupts a flashlight through a dedicated attack.
+	•	Counterplay: Use alternate illumination, coordinate with teammates, break line of sight, and avoid pursuing it blindly.
+Flashlight disruption must be implemented fairly.
+On a successful special attack:
+	1	The flashlight emits a visible or audible malfunction cue.
+	2	The light flickers.
+	3	The flashlight enters a disabled or degraded state.
+	4	The player can reactivate it after a short recovery or complete a simple physical reset.
+	5	The Stalker repositions rather than continuously locking the player out of all illumination.
+Do not permanently destroy the player's main flashlight through an unavoidable hit. A breakable battery or replaceable component can be a separate, explicitly communicated equipment mechanic.
+Enemy C: Blind Crawlers
+Identity: Low, pale, many-limbed organisms that navigate dark spaces through sound, vibration, and proximity.
+Primary role: Force deliberate movement through enclosed interiors and debris fields.
+	•	Perception: Sound and local vibration rather than conventional sight.
+	•	Movement: Climbing and floor-level locomotion across compatible surfaces.
+	•	Attack: Fast lunge or short-range grab.
+	•	Weakness: Loses reliable tracking when targets remain quiet and create separation.
+	•	Counterplay: Crouch-walk, stop interacting with noisy machinery, throw a sound-producing object elsewhere, and avoid unnecessary sprinting.
+Crawlers should not receive perfect information about a player's position at all times. Every sound stimulus should have a location and decay over time.
+Enemy D: Echoes
+Identity: Distant humanoid silhouettes that reproduce sounds from the surrounding environment, including fragments of the train's mechanical rhythm.
+Primary role: Psychological pressure and misdirection.
+	•	Perception: Oriented around investigating isolated players and recent sound events.
+	•	Movement: Slow approach, intermittent stopping, and concealed repositioning.
+	•	Attack: Primarily used as a lead-in to another threat or as a rare standalone encounter.
+	•	Special behavior: Produces a sound from a misleading direction before attempting to move closer.
+	•	Counterplay: Check visual landmarks, stay near teammates, and use deliberate movement rather than reacting to every sound.
+Echoes should be uncommon. If every sound is deceptive, spatial audio loses its usefulness.
+7.5 Enemy State Machine Details
+State
+Entry condition
+Behavior
+Exit condition
+Dormant
+World is safe or enemy inactive
+Hidden, idle, or absent from active simulation
+Eligible encounter starts
+Investigating
+Valid noise or partial perception
+Move toward stimulus location
+Target acquired or stimulus expires
+Tracking
+Sufficient perception confidence
+Follow fresh evidence and search likely routes
+Direct visual/contact detection or lost trail
+Pursuing
+Target identified and outside safe zone
+Use archetype movement to close distance
+Attack range, lost target, or safe-zone entry
+Attacking
+Valid attack opportunity
+Play wind-up, validate hit, apply effect
+Attack ends
+Searching
+Target lost
+Search around last known location
+Target reacquired or timeout expires
+Recovering
+Attack or special ability finishes
+Reset cooldowns and reposition
+Ready for next action
+Retreating
+Safe-zone exclusion or encounter end
+Move away from train and players
+Encounter fully disengaged
+Dormant/despawn
+Encounter budget released
+Remove or pool the entity
+Next eligible encounter
+For Shamblers and ordinary Stalkers, the server should force a retreat state when all valid targets re-enter the standard safe zone. The host should not allow AI to attack through train walls or strike a player who has reached the protected area.
+7.6 Player Counterplay and Fairness
+The Forgotten need readable weaknesses, not merely larger health values.
+Player tool or behavior
+Intended counter
+Handheld flashlight
+Reveals routes but may attract specific threats
+Quiet walking
+Reduces sound-based detection
+Flares or thrown light sources
+Creates temporary illumination or distraction
+Team communication
+Enables coordinated retreat and rescue
+Environmental cover
+Breaks line of sight
+Shortcuts and crawlspaces
+Exploits player mobility advantages
+Noise-producing equipment
+Trades speed or convenience for exposure
+Train proximity
+Provides complete ordinary-night protection
+Ordinary night enemies should primarily create tactical choices and retrieval risks. They should not routinely kill players instantly or make every off-train activity a guaranteed failure.
+
+8. Night 5: The Pursuit
+8.1 Event Identity
+Name: The Pursuit Frequency: Every fifth night Role: A major cooperative survival encounter that temporarily changes the game's rules.
+The Pursuit is a mechanical or anomalous entity that emerges behind the train and follows the railway at dangerous speed. It is not an ordinary enemy that happens to have more health. It is a moving set-piece encounter designed around train operation, weapon positioning, repairs, and team coordination.
+The 15 m safe-zone rule is suspended for the duration of the event. The train provides protection from ordinary threats, but it does not protect players from the pursuing entity's event-specific attacks.
+Make the change explicit before the encounter begins. Players should never discover that an established safe-zone guarantee has disappeared without warning.
+8.2 Event State Machine
+Normal Travel
+     |
+     v
+Pre-Pursuit Warning
+     |
+     v
+Entity Manifestation
+     |
+     v
+Active Chase
+     |
+     +------> Train Damage Event
+     |                 |
+     |                 v
+     |          Emergency Defense
+     |                 |
+     +-----------------+
+     |
+     v
+Final Chase Phase
+     |
+     v
+Entity Breaks Off
+     |
+     v
+Recovery and Salvage
+     |
+     v
+Normal Night Rules Resume
+State definitions
+State
+Purpose
+Gameplay
+Pre-Pursuit Warning
+Give players time to prepare
+Distant impacts, abnormal radio activity, visual indicators
+Entity Manifestation
+Establish scale and direction
+Entity appears behind the train in a controlled reveal
+Active Chase
+Main defense phase
+Pursuit pressure, mounted weapons and engine management
+Train Damage Event
+Test team response
+Selected train modules take damage according to event rules
+Emergency Defense
+Allow recovery from major failures
+Reduced event pressure if critical systems need repair
+Final Chase
+Increase urgency
+Short, high-intensity final encounter
+Entity Breaks Off
+Reward survival
+Pursuer disappears or is temporarily neutralized
+Recovery
+Return agency to the players
+Loot, repairs and post-event systems restoration
+8.3 Warning and Preparation
+Begin the warning phase approximately 3–5 minutes before the night becomes fully hostile.
+Warning indicators:
+	•	Radio interference intensifies.
+	•	The locomotive produces abnormal vibrations.
+	•	Distant metal-on-metal impacts follow the train's movement.
+	•	An alarm or warning instrument activates aboard the train.
+	•	The sky develops an identifiable anomaly.
+	•	A dedicated event indicator tells players how much preparation time remains.
+During this phase, the team should be able to:
+	•	Load ammunition into mounted weapons.
+	•	Repair critical coupling and hull damage.
+	•	Top up the locomotive fuel supply.
+	•	Move important cargo away from vulnerable exposed areas.
+	•	Prepare emergency repair kits.
+	•	Assign defensive positions.
+Do not spawn the pursuing entity while a major station interaction is unexpectedly interrupting a required tutorial or onboarding sequence.
+8.4 The Pursuer: Behavior and Damage Model
+The entity should have a distinct silhouette, a memorable audio signature, and attack patterns that players can learn over successive fifth-night events.
+Its design can combine a huge mechanical frame, anomalous movement, and a distorted appearance of track infrastructure.
+Suggested attacks:
+Attack
+Telegraph
+Effect
+Counterplay
+Track Surge
+Rear track distortion and low-frequency warning
+Rapidly closes distance and increases event pressure
+Maintain locomotive performance
+Rail Impact
+Visible posture change and metallic impact cue
+Damages a selected exposed train module
+Defend vulnerable locations or reinforce the affected car
+Anomalous Pulse
+Electrical buildup and radio distortion
+Temporarily disrupts selected powered equipment
+Divert power, repair, or restore affected systems
+Grasping Appendage
+Large appendage raises beside the train
+Threatens exposed players or car-side modules
+Use mounted weapons and defensive positioning
+Final Lunge
+Strong audio warning and distinctive animation
+High-pressure event attack
+Focus fire, protect critical systems, and keep the train moving
+Attack selection should be phase-dependent and bounded by cooldowns. Avoid simultaneously firing every attack because several independent timers happen to expire together.
+8.5 Train Performance During The Pursuit
+Define the encounter's pressure from the relationship between the entity's pursuit speed and the locomotive's effective speed.
+\[ v_{\text{effective}} = v_{\text{base}} \times M_{\text{load}} \times M_{\text{condition}} \times M_{\text{grade}} \]
+Each multiplier represents a controlled, bounded modification. For example:
+	•	Excess cargo reduces acceleration.
+	•	Poor mechanical condition reduces effective performance.
+	•	Steep inclines increase fuel consumption and can reduce speed.
+	•	Properly maintained machinery improves consistency.
+Use these relationships to drive the chase; avoid teleporting the train or entity to enforce a predetermined result.
+Recommended encounter parameters:
+Parameter
+Starting design target
+Total event length
+6–10 minutes
+Pre-event preparation window
+3–5 minutes
+Minimum acceptable locomotive state
+Enough remaining operation for emergency play
+Critical engine failure
+Creates a severe emergency, but allows a recovery route
+Entity retreat condition
+Survive the defined chase phases or successfully complete a phase-specific defense condition
+Player deaths
+Recoverable; do not require a complete party wipe to end the event
+Event rewards
+Salvage, rare components and occasional special progression rewards
+The entity can be temporarily repelled through concentrated defensive damage or phase-specific interactions, but the initial version should emphasize surviving and maintaining the moving train rather than reducing a boss health bar to zero.
+8.6 Mounted Heavy Weapons
+Mounted weapons must be integrated into the train's construction system.
+Example weapons:
+	•	Heavy mechanical cannon: High damage, slow firing rate.
+	•	Rotary gun: High sustained output, high ammunition consumption.
+	•	Electrical disruptor: Strong against anomalous components, power-intensive.
+	•	Trackside flare launcher: Limited damage but excellent for visibility and temporary interruption.
+Each weapon module should expose:
+MountedWeapon
+    WeaponID
+    MountTransform
+    ValidTargetTypes
+    TraverseLimits
+    ElevationLimits
+    AmmoType
+    AmmoCapacity
+    ReloadTime
+    HeatCapacity
+    Cooldown
+    DamageModel
+    PowerCost
+    MountIntegrity
+    OperatorSeat
+Mounted weapon gameplay requirements
+	•	The operator can physically enter and leave the mount.
+	•	Aim movement is constrained by traverse and elevation limits.
+	•	Firing produces recoil, vibration, muzzle flash and impact effects.
+	•	Ammunition is a real train inventory item.
+	•	Reloading blocks firing and requires the appropriate reload action.
+	•	Overheating can temporarily disable sustained-fire equipment.
+	•	The server validates ammunition, line of sight, fire rate, and hit results.
+	•	The entity can have exposed weak points during specific attacks without becoming permanently vulnerable throughout the encounter.
+Train defense zones
+Distribute defensive modules across the train's length rather than allowing every weapon to cover the same narrow field of view.
+The locomotive may carry a forward utility mount, while rear cars host heavier defensive systems that cover the pursuer. A central defensive car provides an advantageous firing arc but competes with storage or production modules for space.
+This creates meaningful construction decisions before Night 5.
+8.7 Train Damage and Recovery
+Use damageable train components, not one undifferentiated train health value.
+Component
+Damage consequence
+Recovery method
+External hull plate
+Reduced protection for the attached module
+Manual welding or panel replacement
+Coupling
+Higher risk of car separation or reduced structural security
+Repair coupling and realign connection
+Boiler or engine casing
+Reduced output or elevated fault risk
+Specialized engine repairs
+Electrical distribution unit
+Loss of selected powered systems
+Reconnect or replace components
+Weapon mount
+Reduced accuracy or disabled firing
+Structural repair and calibration
+Storage car
+Risk of cargo damage if the outer module is breached
+Repair module and recover protected cargo
+Damage must be geographically consistent. If the pursuer strikes the rear defensive car, the front locomotive should not arbitrarily lose armor durability unless a linked system is legitimately affected.
+After surviving, players receive a limited recovery window during which event pressure ceases and normal nighttime rules return. Use this phase to repair critical modules and secure newly acquired salvage.
+9. First-Person Locomotion
+9.1 Movement Controller Architecture
+Use a first-person character controller with a dedicated locomotion state machine. Movement modes should determine input scaling, collision behavior, animation, camera motion, and allowable interactions.
+Do not implement climbing, crawling, roof traversal, and ordinary walking as unrelated systems. A shared locomotion controller should own movement intent, ground state, stamina, and transition rules.
+Locomotion state machine
+                 +------------------+
+                 |      Grounded    |
+                 +------------------+
+                    |      |      |
+             Sprint |      |Jump  | Crouch
+                    v      v      v
+                Sprinting Airborne Crouched
+                    |      |
+                    +--+---+
+                       |
+                       v
+              Landing / Grounded
+
+Additional specialized transitions:
+    Grounded -> Climbing
+    Climbing -> Mantling
+    Mantling -> Grounded
+    Train Surface -> Roof Traversal
+    Roof Traversal -> Jump Between Cars
+    Any Valid State -> Interaction Lock
+    Airborne -> Falling Recovery
+Interaction Lock should be a movement modifier, not a universal frozen-player state. Operating a lever may permit small positional changes, while a two-handed welding action may restrict movement significantly.
+9.2 Movement Modes
+Mode
+Horizontal speed target
+Stamina
+Special behavior
+Walking
+3.2 m/s
+None
+Standard movement
+Sprinting
+5.5 m/s
+Drains gradually
+Louder footsteps and reduced precision
+Crouch-walking
+1.6 m/s
+None
+Lower profile and reduced noise
+Clambering
+1.0–2.0 m/s
+Moderate drain
+Traverses short obstacles
+Mantling
+Animation-controlled
+Small cost
+Climbs over defined edges
+Roof traversal
+2.5–3.5 m/s
+Optional drain under danger
+Requires stable contact with train roof
+Falling
+Physics-controlled
+None
+Damage only above validated fall thresholds
+Deep snow
+Terrain-modified
+Increased while sprinting
+Reduced acceleration
+Deep mud
+Terrain-modified
+Increased while sprinting
+Heavy movement resistance
+These are initial target values. Tune them against train speed, world scale, and expected structure size.
+Locomotion implementation rules
+	•	Camera rotation must follow player input without unnecessary animation-driven camera snapping.
+	•	Character collision should remain stable when crouching, standing, climbing, or entering narrow passages.
+	•	Use movement curves to blend acceleration and deceleration rather than switching between constant speeds instantly.
+	•	Jump height and duration should be chosen so players can cross intended gaps without making the landscape trivial to traverse.
+	•	Disable incompatible interaction prompts during forced traversal animations.
+	•	Allow interruption for severe danger where it can be implemented without invalidating physics or synchronization.
+9.3 Surface Modifiers: Snow and Mud
+Each terrain surface should provide a material or traversal profile.
+SurfaceProfile
+    SurfaceType
+    MovementSpeedMultiplier
+    AccelerationMultiplier
+    FrictionCoefficient
+    SprintStaminaMultiplier
+    StepHeightModifier
+    FootstepAudio
+    FootstepParticles
+    SlidingBehavior
+Example modifiers:
+Surface
+Speed multiplier
+Acceleration multiplier
+Sprint stamina multiplier
+Dry ground
+1.00
+1.00
+1.00
+Wet grass
+0.95
+0.90
+1.05
+Shallow snow
+0.85
+0.85
+1.10
+Deep snow
+0.55
+0.60
+1.50
+Shallow mud
+0.75
+0.70
+1.20
+Deep mud
+0.45
+0.50
+1.70
+Oily factory floor
+0.90
+0.80
+1.00
+Wet metal grating
+0.90
+0.85
+1.00
+The table defines starting values rather than physically exact coefficients. In particular, movement-speed multipliers must not be confused with the friction coefficients used by a physics simulation.
+Audio and visual feedback
+Deep snow should produce compressed footfalls and displaced powder. Mud should produce suction sounds, visible disturbance, and heavier footsteps. Slippery surfaces should affect acceleration and turning, but ordinary walking must remain controllable.
+Footstep sounds should be driven by the actual surface and movement speed, not simply by the currently equipped biome.
+9.4 Clambering Onto Moving Train Roofs
+Roof traversal is a high-priority tactile mechanic because it allows players to move between modules even while the train is in motion.
+Detection
+Define climbable surfaces through dedicated components:
+ClimbableSurface
+    SurfaceID
+    EntryPoints[]
+    ExitPoints[]
+    SurfaceNormal
+    MaximumApproachSpeed
+    AllowWhileMoving
+    RequiredClearance
+    FallRiskClass
+The player must approach a valid entry point, maintain an acceptable body orientation, and satisfy the surface's locomotion requirements.
+Roof-clamber sequence
+	1	The player approaches a roof edge or side ladder.
+	2	A contextual prompt appears.
+	3	The player initiates a clamber.
+	4	A hand or foot contact sequence aligns the character to the climbable surface.
+	5	The character transitions to a roof-traversal locomotion mode.
+	6	The controller follows the train's moving reference frame.
+	7	The player can walk, crouch, inspect, or prepare to cross a gap.
+The climb animation should align to the actual train's movement rather than teleporting the player to a fixed world-space point.
+Moving reference frame
+When traversing a moving train, character velocity is a combination of train velocity and player motion relative to the train:
+\[ \mathbf{v}_{\text{world}} = \mathbf{v}_{\text{train}} + \mathbf{v}_{\text{relative}} \]
+For a stable player standing on the roof, relative motion is approximately zero. When the player runs forward along the roof, relative velocity is added to train velocity.
+Use the same principle for jumping between train cars so the player retains appropriate forward momentum rather than freezing in world space when leaving a moving surface.
+9.5 Jumping Between Shifting Cars
+Train cars can move relative to one another due to track geometry, coupling motion, braking, and acceleration.
+The jump system should account for:
+	•	Current player position and velocity.
+	•	Train speed and acceleration.
+	•	Relative motion between the two cars.
+	•	Gap width and vertical offset.
+	•	Roof obstruction and clearance.
+	•	Landing surface validity.
+	•	Whether the destination is moving away or toward the player.
+Landing procedure
+	1	Detect an intended landing region on the destination car.
+	2	Estimate relative position and velocity.
+	3	Initiate the jump only when the target lies within a sensible reachability envelope.
+	4	Apply normal airborne physics in the train-relative frame.
+	5	On contact, validate that the player can stand on the target roof.
+	6	Transition to a stable roof-traversal state.
+If the player misses, use a consistent fall outcome. Depending on the geometry, the player might land on a side platform, grab an edge, collide with a safety rail, or fall to the ground. Do not force every miss into the same instant-death animation.
+Safety and challenge
+	•	Running across roofs should be possible but should not be required for routine locomotive operation.
+	•	Handrails and designated paths provide safe routes.
+	•	Damaged or detached cars may introduce genuine gaps.
+	•	Weather may increase the chance of slipping, but slipping should remain predictable.
+	•	Night 5 attacks can make exposed roof travel dangerous, forcing defenders to choose between safe interior routes and valuable firing positions.
+
+10. Tactile Interaction Framework
+10.1 Unified Interaction Architecture
+Every interactable should use a shared interface so it can participate in first-person input, animation, networking, accessibility, and persistence.
+Interactable
+    ObjectID
+    InteractionType
+    RequiredTool
+    RequiredItem
+    InteractionDuration
+    InteractionRange
+    ValidationRules
+    AnimationProfile
+    AudioProfile
+    GameplayEffect
+    ReplicationPolicy
+    PersistencePolicy
+The interaction controller should handle detection and input. The target object should handle its own state transitions and authoritative results.
+Interaction lifecycle
+Idle
+  |
+  v
+Target Detected
+  |
+  v
+Context Prompt
+  |
+  v
+Interaction Started
+  |
+  v
+Physical Animation / Input
+  |
+  v
+Server Validation
+  |
+  v
+State Change Committed
+  |
+  v
+Feedback and Replication
+  |
+  v
+Idle
+The server must validate all gameplay outcomes that matter in multiplayer. Client-side animations can begin immediately for responsiveness, but inventory changes, machine state, crafting completion, and damage results must be authoritative.
+10.2 Physics-Based Lever Pulling
+Train controls should be physically presented as levers, valves, wheels, switches, and pressure gauges.
+Interaction model
+	•	Aim at the lever handle.
+	•	Hold the interaction input to grip it.
+	•	Move the mouse or control input to apply an angular target.
+	•	Release the input to let the lever remain in position or return to its defined rest position.
+	•	Feed the resulting lever position into the machine simulation.
+Lever definition
+PhysicalLever
+    Pivot
+    MinAngle
+    MaxAngle
+    Detents[]
+    AngularSpeed
+    ReturnSpringStrength
+    RequiredGripDuration
+    InputSensitivity
+    GameplayMapping
+Not every lever should map directly to one button. For example:
+	•	A throttle lever sets requested engine power.
+	•	A brake valve changes brake pressure.
+	•	A firebox damper affects airflow.
+	•	A reversing lever selects forward, neutral, or reverse operating modes.
+	•	A pressure-release valve vents pressure.
+Use detents for important operating positions, and continuous input for controls that benefit from fine adjustment.
+Physical and logical states
+The visual lever angle should not be the authoritative machine state by itself. Store the validated control setting separately, then smoothly animate the lever to its replicated position.
+This prevents network interpolation or collision jitter from accidentally changing the locomotive's operation.
+10.3 Opening the Furnace Door
+The furnace should be a proper interactable component with hinged physics, collision, sound, lighting, and combustion-state behavior.
+Sequence
+	1	The player approaches the furnace door.
+	2	A contextual interaction prompt appears.
+	3	The player presses the assigned interaction key.
+	4	The door opens according to its hinge constraints.
+	5	Furnace interior lighting and visible flame behavior update.
+	6	The player may insert fuel if space and operating conditions permit.
+	7	The door can be closed again to restore the intended operating state.
+Furnace door states
+State
+Condition
+Consequence
+Closed
+Door latched
+Normal combustion configuration
+Opening
+Hinge moving
+Brief transition; insertion may be disallowed
+Open
+Door beyond interaction threshold
+Fuel insertion permitted
+Jammed
+Door mechanism damaged
+Requires repair or manual workaround
+Closing
+Hinge returning
+Prevents repeated overlapping inputs
+Opening the door should not instantly consume fuel or automatically increase engine output. It merely changes the firebox's physical access state and, where appropriate, its airflow characteristics.
+10.4 Picking Up Individual Coal Chunks
+Fuel must be represented as tangible items in the world and in the inventory, not just as an abstract counter.
+Coal pickup
+	1	The player looks at an individual coal chunk or stack.
+	2	A pickup prompt displays the item and stack size.
+	3	The player picks up one chunk or uses a separate action for a larger stack.
+	4	The chunk leaves the world and appears in inventory or the player's hand.
+	5	The system validates inventory weight, space, and ownership.
+	6	The world item is removed authoritatively.
+Coal objects need simple collisions and pooled physics behavior. A large pile should use a manageable number of rigid bodies rather than thousands of expensive colliders.
+Fuel insertion
+When the firebox is open, a player holding coal can insert it into the firebox. The chunk moves through an insertion animation before entering the fuel inventory.
+Optional advanced interaction: players can toss a chunk into an open firebox, but the server must validate the actual landing and insertion result. The initial implementation can use a short, assisted animation rather than full free-throw physics.
+Fuel simulation
+A simple model is preferable to an unnecessarily complicated thermodynamic simulation.
+Track:
+	•	Fuel quantity and energy value.
+	•	Combustion progress.
+	•	Airflow setting.
+	•	Boiler or engine heat state.
+	•	Steam or power reserve where relevant.
+	•	Fuel efficiency.
+	•	Heat loss.
+	•	Damage and fault conditions.
+The simulation should distinguish fuel being consumed from useful engine output being delivered. This makes fuel selection and machine condition matter without forcing players to perform arbitrary tasks every few seconds.
+10.5 Welding Torch and Manual Hull Repairs
+The welding torch should be a separate first-person tool with an equipment model, consumable resource, heat effect, audio, and repair validation.
+Repair workflow
+	1	The player equips the welding torch.
+	2	The player approaches a damaged, compatible train module.
+	3	The target's damaged area becomes highlighted.
+	4	The torch is activated.
+	5	Welding sparks and repair-progress feedback begin.
+	6	Repair progress accumulates while the player maintains a valid target.
+	7	The server verifies consumables, tool condition, repair target, and repair rate.
+	8	The damaged component's integrity increases.
+	9	The tool consumes fuel or welding rods as defined by the recipe.
+Repair constraints
+	•	Welding requires line of sight and an appropriate distance.
+	•	The player cannot repair a component that has been detached or destroyed beyond its recoverable limit unless a dedicated reconstruction process exists.
+	•	Repairing a critical component while the train is moving may involve additional risk.
+	•	Severe damage requires more material and more repair time.
+	•	The tool's heat or consumable state should prevent infinite repairs.
+	•	Other players can assist through power supply, resource delivery, and defensive cover.
+Example repair tuning
+Damage level
+Integrity restored
+Interaction duration
+Material cost
+Light
+Up to 15% of maximum integrity
+3–5 seconds
+Small amount of welding material
+Moderate
+Up to 30%
+8–12 seconds
+Moderate material cost
+Severe
+Up to 40%
+15–25 seconds
+Higher material cost, potentially with replacement parts
+Critical structural failure
+Not recoverable by welding alone
+Variable reconstruction process
+Structural parts and a dedicated repair procedure
+Repair should have diminishing efficiency when applied to a nearly destroyed component. A damaged, critical coupling should require substantially more effort than patching ordinary exterior plating.
+10.6 Interaction Priority and Accessibility
+Players may be required to operate critical machinery quickly during The Pursuit. Controls should therefore be expressive without making basic survival unnecessarily difficult.
+Include options for:
+	•	Hold versus toggle interaction.
+	•	Adjustable input sensitivity for physical controls.
+	•	Shorter repeated-interaction animations.
+	•	Clear color-independent interaction highlights.
+	•	Remappable input.
+	•	Separate aim and interaction sensitivity.
+	•	Optional reduced camera movement.
+	•	Subtitles or directional audio cues for critical warnings.
+The objective is tactile immersion, not arbitrary input friction.
+11. The Train: Modular Construction and Simulation
+11.1 Block-by-Block Train Architecture
+Represent the train as a collection of connected cars, each containing attachable modules. A module occupies one or more construction cells on a standardized grid.
+Train
+ ├── Locomotive
+ │    ├── Engine
+ │    ├── Firebox
+ │    ├── Fuel Storage
+ │    └── Control Station
+ ├── Cargo Car
+ │    ├── Storage Modules
+ │    └── Reinforced Hull
+ ├── Workshop Car
+ │    ├── Workbench
+ │    ├── Welding Station
+ │    └── Component Storage
+ ├── Defensive Car
+ │    ├── Weapon Mounts
+ │    ├── Ammunition Storage
+ │    └── Reinforced Plating
+ └── Living Car
+      ├── Beds
+      ├── Kitchen
+      └── Medical Station
+A train module should declare its construction footprint, attachment points, mass, power requirement, durability, and gameplay role.
+Module definition
+TrainModule
+    ModuleID
+    ModuleType
+    ConstructionFootprint
+    AttachmentSockets[]
+    Mass
+    CenterOfMassOffset
+    MaxIntegrity
+    CurrentIntegrity
+    PowerDemand
+    FuelDemand
+    StorageCapacity
+    ArmorRating
+    OperationalState
+    CraftingRecipe
+    ReplicationPolicy
+    PersistencePolicy
+Keep module definitions data-driven. New equipment should be addable through configuration and asset authoring without rewriting the train simulation.
+11.2 Construction and Attachment Rules
+Players should construct or reconfigure train cars at suitable workbenches or stations.
+	1	Enter construction mode.
+	2	Select a module blueprint.
+	3	Display a grid preview.
+	4	Validate footprint, collision, sockets, resource cost, and compatibility.
+	5	Confirm placement.
+	6	Consume the required resources.
+	7	Register the module in the car's configuration.
+	8	Replicate the new configuration to all players.
+Initially, prohibit free-form building while the train moves at normal travel speed. Advanced upgrades may allow limited onboard assembly when the train is stationary or operating slowly.
+This avoids a large number of physics, collision, and network edge cases.
+Attachment constraints
+	•	The locomotive must remain connected to a valid powered running configuration.
+	•	Every car must connect through compatible coupling sockets.
+	•	A module cannot extend into another module's occupied footprint.
+	•	Weapons require clear firing arcs.
+	•	Heavy equipment must account for the car's mass limit.
+	•	Electrical machinery requires available power capacity.
+	•	Living modules require valid access paths.
+	•	Car connections must remain accessible for maintenance.
+11.3 Locomotive State Machine
+Stopped
+   |
+   v
+Ready
+   |
+   v
+Starting
+   |
+   v
+Running <-------> Under Load
+   |                    |
+   v                    v
+Degraded             Overheated
+   |                    |
+   +------> Fault <-----+
+               |
+               v
+         Emergency Stop
+               |
+               v
+           Recovery
+The state machine should control valid transitions, but actual train speed should emerge from engine output, braking, track grade, mass, and other simulated forces.
+State
+Entry condition
+Effects
+Stopped
+Speed approximately zero
+Safe boarding and construction when conditions permit
+Ready
+Required operating conditions met
+Engine can start
+Starting
+Start sequence initiated
+Startup animation, ignition checks and initial resource use
+Running
+Engine operating normally
+Standard traction and power output
+Under Load
+Requested output exceeds a threshold
+Increased fuel consumption and heat
+Degraded
+Performance reduced by damage or maintenance
+Lower output, warnings and instability
+Overheated
+Heat reaches defined limit
+Output reduction and potential damage
+Fault
+Critical system fails
+Restricted operation or shutdown
+Emergency Stop
+Emergency control engaged
+Rapid braking subject to train dynamics
+Recovery
+Maintenance or restart underway
+Selected controls disabled until validation passes
+11.4 Fuel, Maintenance, and Performance
+Fuel requirements should create strategic choices, not a permanent chore that prevents players from exploring.
+A basic fuel model is:
+\[ \text{FuelConsumed} = \text{RequestedPower} \times \text{FuelRate} \times \text{EfficiencyModifier} \times \Delta t \]
+Clamp fuel consumption to available fuel and validate that output never exceeds the current operating capability.
+Fuel efficiency depends on engine condition, operating demand, and upgrade configuration. If heat or boiler pressure is part of the simulation, use the actual thermal model to constrain engine output.
+Maintenance components
+Component
+Degradation cause
+Warning signs
+Repair
+Firebox
+Poor condition, repeated overloading
+Irregular combustion and reduced output
+Clean, repair and replace parts
+Engine mechanism
+Operation and high load
+Vibration, loss of efficiency
+Mechanical repair
+Boiler/pressure system
+Excessive stress or damage
+Pressure fluctuations and alarms
+Valve or casing repair
+Braking system
+Wear and repeated emergency braking
+Longer stopping distance
+Brake maintenance
+Wheel assemblies
+Heavy load and prolonged operation
+Noise and reduced traction
+Replace bearings or components
+Electrical generator
+High power demand and damage
+Flicker, electrical warnings
+Electrical repair
+Coupling
+High stress, collision, or direct attack
+Visible movement and structural warnings
+Repair and realign
+Do not have every component degrade at an equally aggressive rate. A good baseline is to make fuel the primary routine management cost, while serious mechanical failures arise from neglected maintenance, overloading, dangerous terrain, or combat.
+
+12. Advanced Multiplayer Roles and Cooperative Loop
+12.1 Networking Model
+Support two deployment modes:
+	•	Host/Client: One player hosts the simulation while others join.
+	•	Dedicated Server: A server controls the world independently of player clients.
+Both modes should use the same gameplay architecture.
+The server is authoritative for:
+	•	Player inventory and resource ownership.
+	•	Train movement and machine states.
+	•	Structure and container state.
+	•	Enemy spawning, AI, and damage.
+	•	Loot assignment and collection.
+	•	Crafting, repairs, and construction.
+	•	Player health and incapacitation.
+	•	Station activation and checkpoint commits.
+	•	The Pursuit event state.
+Clients send requests and display predicted feedback. They should not independently decide that an item was collected, a repair completed, or a hostile was defeated.
+Example: fuel insertion over the network
+Client requests insertion of coal
+            |
+            v
+Server validates held item and furnace state
+            |
+            v
+Server checks inventory and interaction range
+            |
+            v
+Server removes coal from inventory
+            |
+            v
+Server adds fuel to the firebox
+            |
+            v
+Server commits the state change
+            |
+            v
+All clients receive the resulting state
+For responsiveness, the client may begin the pickup or insertion animation immediately. If the server rejects the action, the client must reconcile its displayed inventory and equipment state.
+12.2 Roles and Shared Responsibilities
+Roles should be recommendations supported by equipment, progression, and player specialization. They should not become fixed classes that prevent one player from helping with another job.
+Role A: The Engineer
+Primary responsibility: Keep the locomotive operational and improve its long-term performance.
+Core activities:
+	•	Load fuel and maintain the furnace.
+	•	Monitor pressure, speed, heat, and mechanical warnings.
+	•	Operate the throttle, brake, and other locomotive controls.
+	•	Repair critical mechanical components.
+	•	Diagnose engine faults.
+	•	Manage power distribution to defensive systems.
+	•	Lead emergency repairs during The Pursuit.
+Recommended specialization benefits:
+	•	Faster maintenance interactions.
+	•	Better visibility into mechanical fault causes.
+	•	Reduced material waste on routine repairs.
+	•	Access to diagnostic information for advanced engine systems.
+Trade-off: The Engineer is most effective when focused on the train, but must not be required to remain in the locomotive at all times.
+Role B: The Scavenger
+Primary responsibility: Bring the team the materials and equipment needed to expand and survive.
+Core activities:
+	•	Search structures and industrial containers.
+	•	Identify valuable items.
+	•	Carry and organize salvage.
+	•	Locate alternate entrances.
+	•	Unlock compatible safes.
+	•	Collect fuel and basic materials.
+	•	Identify rare structure variants and high-value containers.
+Recommended specialization benefits:
+	•	Better carry-weight efficiency.
+	•	Faster container searches.
+	•	Improved identification of certain hidden resources.
+	•	More efficient lockpicking.
+	•	Expanded field inventory options.
+Trade-off: Specialized carrying equipment should still consume inventory capacity or weight budget. Avoid giving the Scavenger so much capacity that other players become irrelevant.
+Role C: The Defender
+Primary responsibility: Protect the train and support teammates during dangerous expeditions.
+Core activities:
+	•	Operate mounted weapons.
+	•	Maintain ammunition supplies.
+	•	Install defensive modules and armor.
+	•	Watch for Night 5 attack telegraphs.
+	•	Protect exposed teammates.
+	•	Establish safe routes through hostile facilities.
+	•	Respond to attacks on train cars.
+Recommended specialization benefits:
+	•	Faster mounted-weapon reloads.
+	•	Improved weapon heat management.
+	•	More efficient defensive equipment maintenance.
+	•	Better information about exposed train modules and incoming attack direction.
+Trade-off: Heavy weapons and armor consume construction space, materials, and ammunition. A heavily defended train should require meaningful compromises elsewhere.
+Role D: The Medic/Chef
+Primary responsibility: Maintain team recovery, food supplies, and expedition readiness.
+Core activities:
+	•	Cook ingredients into meals.
+	•	Prepare emergency rations.
+	•	Treat injuries and stabilize incapacitated players.
+	•	Organize medical supplies.
+	•	Maintain food preparation equipment.
+	•	Monitor recovery resources.
+	•	Distribute food and medical supplies before difficult encounters.
+Recommended specialization benefits:
+	•	More efficient medical-item use.
+	•	Improved cooking yield.
+	•	Better preparation of recovery-oriented food.
+	•	Faster stabilization of incapacitated teammates.
+	•	More reliable identification of medical resource requirements.
+Trade-off: Food and medicine consume storage space and preparation time. Their primary value is improved resilience, not making players invulnerable.
+12.3 The Four-Player Cooperative Loop
+A well-balanced expedition should let all four players contribute without requiring voice communication for every interaction.
+Example: Industrial Factory Expedition
+Phase
+Engineer
+Scavenger
+Defender
+Medic/Chef
+Preparation
+Checks fuel and pressure
+Packs tools and inventory
+Loads weapon ammunition
+Distributes food and medical supplies
+Arrival
+Secures train state
+Scouts entrances
+Watches perimeter and access routes
+Prepares emergency items
+Exploration
+Assists with machinery
+Searches containers
+Covers dangerous corridors
+Collects supplies and monitors team condition
+Hazard response
+Restores power or repairs machinery
+Retrieves needed materials
+Holds dangerous approaches
+Treats injuries and supports extraction
+Return
+Rechecks locomotive
+Moves valuable cargo
+Protects the route home
+Stabilizes injured players
+Departure
+Operates the engine
+Organizes salvage
+Readies defensive positions
+Restocks recovery items
+Roles should be flexible during short stops. If the Engineer is injured, another player must be able to operate the locomotive. If the Defender is occupied, another player must be able to use an available weapon mount.
+12.4 Shared Inventory and Workstation Access
+The team should have multiple inventory layers:
+	1	Player inventory: Items carried by an individual.
+	2	Train storage: Shared resources accessible from designated storage points.
+	3	Container inventory: Loot remaining in world structures.
+	4	Machine inventory: Fuel, ammunition, crafting inputs, and other equipment currently loaded into specific systems.
+	5	Protected progression inventory: Unique blueprint unlocks and other persistent milestones.
+These inventories must remain logically separate, even when they are presented through one interface.
+When an item moves between inventories, perform a single authoritative transaction. Do not remove it from the source only on the client or create it at the destination before the server validates the transfer.
+12.5 Incapacitation and Recovery
+Players should be able to become incapacitated rather than immediately losing all progress through death.
+Suggested rules:
+	•	Incapacitated players can be revived using an appropriate interaction.
+	•	Medical supplies affect recovery speed or the amount of recoverable health.
+	•	A player may be dragged or assisted in a limited set of conditions if implemented.
+	•	Ordinary-night enemy pressure decreases when the player returns to the train perimeter, but downed players outside it still need rescuing.
+	•	During The Pursuit, exposed players remain in danger even on the train.
+	•	Death, abandonment, and recovery should have consistent rules for inventory ownership.
+Recommended default: leave the player's backpack in the world after death, with a persistent recovery marker while the session remains active. A party should generally be able to recover resources by returning to that location rather than losing everything automatically.
+For disconnects, preserve the reconnect record independently from ordinary death behavior, as specified in the save system below.
+
+13. Persistent Saving and Disconnect Handling
+13.1 The Two-Level Save Architecture
+Trackbound needs two distinct kinds of save data:
+A. Durable station checkpoint: The authoritative, persistent world save committed at a Biome Station.
+B. Session recovery journal: A recoverable snapshot of the active run while travelling between stations.
+The journal makes disconnects, crashes, and host migration manageable without weakening the intended role of stations as major progression checkpoints.
+A station checkpoint is the official durable progression boundary. The session journal restores a compatible active session; it should not automatically grant every benefit of activating a station.
+13.2 What the Biome Station Saves
+When the team activates a Biome Station and commits a checkpoint, save a consistent world snapshot containing:
+Save category
+Data
+World identity
+World seed, generation version, route progression
+Current location
+Biome ID, chunk ID, track position, orientation
+Train configuration
+Cars, modules, attachment links, construction layout
+Train condition
+Fuel, machine state, module integrity and damage
+Shared inventory
+Storage contents, ammunition, resources and equipment
+Player state
+Health, progression, equipment and applicable inventory
+Structures
+Generated IDs, opened containers, altered doors, destroyed machinery
+Loot state
+Remaining contents, collected items and protected rewards
+Progression
+Blueprint unlocks, recipes, milestones and world flags
+World clock
+Day number, time phase and scheduled fifth-night event index
+Encounter state
+Relevant completed events and persistent consequences
+Save metadata
+Schema version, timestamp, checkpoint ID and integrity information
+Players should not need to memorize which of these categories are saved. The station activation interface should state clearly that the checkpoint includes train condition, shared storage, and progression.
+13.3 Station Checkpoint Commit Procedure
+Avoid writing dozens of independent files and declaring success before the entire state has been committed.
+Use an atomic checkpoint protocol.
+	1	Validate the station: Check that the server is authoritative and the station can commit a checkpoint.
+	2	Establish a consistent snapshot: Record train, player, inventory, world, and progression state from a consistent simulation point.
+	3	Serialize: Convert the snapshot into a versioned save representation.
+	4	Write temporary data: Store the new snapshot in temporary files or a transactional storage layer.
+	5	Validate integrity: Check data completeness, identifiers, and checksums where supported.
+	6	Commit: Mark the new snapshot as the latest valid checkpoint.
+	7	Retain recovery data: Preserve the previous valid checkpoint until the commit is verified.
+	8	Notify clients: Report checkpoint success only after the server confirms the commit.
+A failed checkpoint should preserve the last valid save and communicate the failure to the players.
+13.4 Mid-Track Autosaving
+The session journal must track the changes needed to reconstruct the active run.
+Examples include:
+	•	Train position and speed.
+	•	Engine fuel and damage.
+	•	Inventory transfers.
+	•	Container contents.
+	•	Player positions and statuses.
+	•	Structure doors and machines that changed.
+	•	Active crafting jobs.
+	•	Completed encounters and event state.
+Use a combination of periodic snapshots and event logging.
+Recommended starting configuration
+Mechanism
+Starting frequency
+Purpose
+Session snapshot
+Every 60 seconds
+Recovery baseline
+Critical inventory journal
+After confirmed transactions
+Avoid duplicate or lost items
+Train state journal
+Every 5–10 seconds, or on meaningful changes
+Reduce lost travel and damage state
+Structural change journal
+On confirmed interactions
+Preserve opened containers and altered structures
+Station checkpoint
+Explicit activation
+Commit durable progression
+Recovery validation
+On reconnect or restart
+Reconcile incomplete writes and interrupted transactions
+Do not assume every five-second snapshot needs to be written to a single large save file. Use compact state deltas or append-only journal entries where appropriate.
+A journal transaction should include a monotonically increasing sequence number so the save loader can detect duplicate, missing, or incomplete events.
+13.5 What Happens When a Player Disconnects Mid-Track?
+A disconnect is a player-session event, not a world-checkpoint event.
+Case A: A client disconnects while the host or dedicated server remains active
+	1	Record the player's current state in the session journal.
+	2	Remove the client from active input and interaction processing.
+	3	Validate any in-progress item transaction before resolving it.
+	4	After a short grace period, remove the disconnected avatar from active simulation.
+	5	Keep that player's inventory and progression associated with their identity in the reconnect record.
+	6	Do not create a second copy of the inventory on the train.
+	7	Allow the remaining team to continue the current run.
+	8	When the player reconnects, restore them according to the saved reconnect policy.
+Recommended reconnect policy: If the player returns quickly and their original position is safe and valid, restore them there. If the position is invalid, inside unloaded geometry, or exposes the player to unrecoverable danger, place them at a safe location near the train and communicate the relocation.
+For this initial version, do not let a disconnected player's avatar be killed by ordinary night mobs or hostile AI while the client is absent. The disconnect grace period should resolve into a suspended reconnect record, not a vulnerable idle character.
+Case B: The host disconnects in Host/Client mode
+There are three viable designs:
+Design
+Behavior
+Trade-off
+Host migration
+Another connected client takes authority using a validated session snapshot
+More engineering complexity, better continuity
+Pause and recover
+Pause the simulation, preserve the session journal, and allow the host or another player to resume
+Simpler but interrupts play
+End the hosted session
+Finalize the last valid recoverable journal and require a new session
+Easiest initial implementation
+Recommendation: Implement pause-and-recover first, with a clear warning that only the last valid session journal may be recoverable if the host machine fails. Implement host migration only after the network authority and serialization systems are robust.
+If a dedicated server disconnects a player, the session should continue normally. If the dedicated server itself shuts down, restore from the last valid session journal when permitted.
+Case C: The player chooses Leave Session
+	•	Confirm or roll back incomplete inventory transactions.
+	•	Save a reconnect record where supported.
+	•	Remove the player's avatar after the grace period.
+	•	Do not trigger station activation.
+	•	Do not duplicate dropped items or clone the character's inventory.
+	•	Preserve the official station checkpoint independently from the session journal.
+13.6 What Happens at a Biome Station?
+A station is the formal place to commit persistent progress.
+When the team activates it:
+	1	The station presents the current train condition and save destination.
+	2	Eligible players complete required station interactions.
+	3	The server creates a consistent world snapshot.
+	4	The server commits the checkpoint.
+	5	The station records its identity, the time of activation, and the checkpoint version.
+	6	The team receives explicit confirmation that the save succeeded.
+	7	Earlier checkpoints remain available for recovery until their replacement is safely committed.
+Stations can also support specialized gameplay services:
+	•	Train reconstruction and car reconfiguration.
+	•	Large-module installation.
+	•	Fuel and material trading.
+	•	Repairing heavily damaged equipment.
+	•	Crafting advanced components.
+	•	Reviewing route information and regional structure records.
+A station should not automatically erase hostile encounters, regenerate previously emptied structures, or reset world progression. Those are separate world-state decisions.
+13.7 Persistent World Object Identity
+Every stateful structure, container, and train module must have a durable identifier.
+Use a key derived from deterministic world information, with a unique object ID:
+PersistentObjectID
+    WorldID
+    RegionOrChunkID
+    StructureID
+    LocalObjectID
+When a generated structure loads, the server checks whether persistent state exists for its ID.
+	•	No saved state: Initialize from deterministic generation.
+	•	Existing saved state: Apply the saved state.
+	•	Partially changed state: Replay validated journal entries.
+	•	Incompatible save version: Run a migration or reject the incompatible state safely.
+The same crate must never generate a fresh set of loot simply because a player traveled away and returned.
+14. Technical Systems Architecture
+14.1 Recommended Runtime Subsystems
+Keep game systems modular. A train upgrade, new enemy, or room archetype should integrate through stable interfaces rather than modifying unrelated code.
+Subsystem
+Responsibilities
+Authority
+World Generator
+Biomes, terrain, track chunks, structure candidates
+Server
+Structure Builder
+Room graphs, module placement, validation
+Server
+Persistence Manager
+Checkpoints, journal entries, save migrations
+Server or local host
+Train Simulation
+Motion, coupling, fuel, machine condition
+Server
+Locomotion Controller
+Player movement, clambering, jumping and traversal
+Server-validated; client-predicted where supported
+Interaction System
+Target detection, tactile inputs, object state changes
+Server for outcomes
+Inventory System
+Items, stacks, storage and transfers
+Server
+Loot Director
+Container reward assignment and rarity constraints
+Server
+Night Director
+Cycle state, perimeter policy and encounter budgets
+Server
+AI Framework
+Perception, state machines, pathfinding and combat
+Server
+Pursuit Director
+Night 5 scheduling, entity state and attacks
+Server
+Crafting System
+Recipes, resource consumption and production
+Server
+Audio/Atmosphere Director
+Ambience, dynamic music, fog cues and sound transitions
+Replicated state drives client presentation
+UI/HUD
+Gauges, inventories, prompts, team status and warnings
+Client presentation
+Multiplayer Session Manager
+Connection state, reconnects and authority transitions
+Host or dedicated server
+14.2 Event-Driven Communication
+Systems should communicate through well-defined events rather than direct dependencies on each other's internal objects.
+Example events:
+OnBiomeEntered
+OnStructureDiscovered
+OnContainerOpened
+OnItemTransferred
+OnFuelAdded
+OnEngineFault
+OnTrainModuleDamaged
+OnPlayerEnteredSafeZone
+OnPlayerLeftSafeZone
+OnNightPhaseChanged
+OnPursuitStarted
+OnPlayerIncapacitated
+OnStationActivated
+OnCheckpointCommitted
+OnClientDisconnected
+OnClientReconnected
+An event should contain enough context for other systems to respond without inspecting arbitrary hidden state.
+For instance, OnPlayerLeftSafeZone should include the player identity, current world position, server time, and the relevant safe-zone identity. The Night Director can then evaluate threat eligibility without owning the player controller.
+Avoid broadcasting every frame's movement through a general-purpose event bus. High-frequency simulation should use dedicated state replication and update loops.
+14.3 AI Navigation and Performance
+The world is infinite in extent but only a small fraction should be fully simulated at once.
+Use three broad simulation levels:
+Level
+Example
+Simulation detail
+Near
+Current structure, nearby players, active train modules
+Full collision, interaction, AI and physics
+Mid-range
+Discovered structures, nearby track chunks
+Reduced update frequency, limited ambient and structural simulation
+Far
+Unvisited terrain, distant scenery
+Deterministic generation and simplified visual representation
+Do not run full AI perception, collision, and pathfinding for enemies that cannot affect the current encounter.
+For the train, keep core machine simulation active regardless of visual-detail distance. A vehicle should not consume a different amount of fuel simply because the camera is looking elsewhere.
+Performance rules
+	•	Pool frequently spawned particles and short-lived visual effects.
+	•	Use simplified colliders for distant or non-interactive scenery.
+	•	Build static room navigation before a player enters a facility.
+	•	Avoid rebuilding an entire facility's NavMesh after opening a single door.
+	•	Use spatial partitioning for interaction detection and threat proximity.
+	•	Replicate gameplay changes, not every decorative animation.
+	•	Rate-limit expensive generation and physics operations.
+	•	Cache deterministic structure layouts.
+	•	Set budgets for simultaneously active enemies, rigid bodies, and powered machines.
+	•	Profile a complete moving train with four players, multiple active machines, and a generated facility—not isolated test scenes alone.
+14.4 Client Prediction and Reconciliation
+Player movement and immediate interaction feedback should feel responsive, even though the server determines authoritative outcomes.
+For local movement:
+	1	The client predicts movement using the current replicated world state.
+	2	The server independently processes the movement request.
+	3	The server sends the authoritative result.
+	4	The client reconciles small differences without visibly snapping whenever possible.
+For interaction:
+	1	The client begins the expected animation.
+	2	The server validates range, line of sight, permissions, item ownership, and target state.
+	3	The server commits the outcome.
+	4	The client updates inventory, animation state, and UI from the resulting authoritative data.
+Use separate replication policies for high-frequency movement and low-frequency persistent state. A lever's physical animation may update continuously for nearby players, while a blueprint unlock only requires a confirmed state change.
+
+15. Survival Balance and Failure Design
+15.1 Failure Should Produce Consequences, Not Arbitrary Resets
+Trackbound is a survival game, but the primary loop depends on continued attachment to the train.
+The main consequences should be:
+	•	Lost time.
+	•	Consumed fuel.
+	•	Damaged equipment.
+	•	Expended ammunition.
+	•	Reduced medical supplies.
+	•	A dangerous recovery expedition.
+	•	Lost or damaged unprotected cargo.
+	•	Temporary loss of access to a module.
+Permanent loss should be reserved for clearly communicated mechanics. Do not destroy an entire cooperative world because one player fell off a roof unless that is an explicit, agreed-upon game mode.
+15.2 Recovery Hierarchy
+Failure
+Initial response
+Longer-term consequence
+Fuel depletion
+Emergency fuel or recovery materials
+Delayed travel
+Ordinary hull damage
+Manual repairs
+Material cost
+Weapon ammunition depleted
+Switch tactics or ration ammunition
+Increased risk during The Pursuit
+Player incapacitated
+Teammate revival
+Medical resources consumed
+Player death
+Retrieve backpack or use an explicit recovery mechanic
+Lost time and possible item loss
+Engine fault
+Diagnose and repair
+Reduced travel speed
+Car separation
+Repair or recover the detached car
+Temporary loss of storage or equipment
+Pursuit attack
+Defend, maintain speed, and repair
+Substantial damage if the defense fails
+Host disconnection
+Resume from recoverable session state
+Possible rollback to last valid journal
+Checkpoint failure
+Preserve previous checkpoint and report error
+No falsely reported successful save
+15.3 Preventing Degenerate Strategies
+Design constraints should prevent players from avoiding every risk through one trivial strategy.
+Safe-zone camping: Normal nights are peaceful near the train by design. Meaningful night exploration is optional, but certain useful resources and discoveries should encourage prepared expeditions rather than force them.
+Permanent sprinting: Terrain resistance, stamina, movement noise, and equipment load discourage indefinite sprinting without arbitrary speed caps everywhere.
+Loot farming: Persistent container state prevents repeated unloading and reloading from regenerating loot.
+Extreme train mass: Heavier modules increase required power and affect acceleration, braking distance, and fuel consumption.
+Unlimited repair spam: Repairs consume appropriate resources and obey integrity limits.
+Weapon stacking: Mount locations, firing arcs, power demand, ammunition, car mass, and construction capacity constrain defensive layouts.
+Disconnect exploitation: Inventory transactions, death handling, and reconnect records are server-authoritative and cannot duplicate a player's equipment.
+Enemy manipulation: Pursuit AI should respect its own rules and attack constraints rather than being fooled indefinitely by visual-obstruction edge cases.
+
+16. Implementation Roadmap
+Build Trackbound as a sequence of coherent, testable gameplay milestones. The first milestone should prove that the train, first-person locomotion, world generation, and persistence work together before the project expands into a large content catalog.
+Phase 1: Playable Train Prototype
+Deliverables:
+	•	First-person movement and camera.
+	•	One functional locomotive.
+	•	Basic track spline and continuous forward movement.
+	•	Fuel chunks, furnace door, throttle, and braking.
+	•	One modular train car.
+	•	Basic inventory and resource pickup.
+Acceptance criteria:
+	•	Players can board and leave a stationary train.
+	•	The train starts and moves only when operating conditions permit.
+	•	Fuel is physically transferred from inventory to the firebox.
+	•	The train stops under the intended braking model.
+	•	Basic machine controls work without using instant, abstract menu actions.
+Phase 2: Modular Train and Building
+Deliverables:
+	•	Train construction grid.
+	•	Module definitions and attachment sockets.
+	•	Car connection rules.
+	•	Storage, workshop, living, and defensive module prototypes.
+	•	Component integrity and repair tools.
+	•	Basic crafting interface.
+Acceptance criteria:
+	•	Players can build and remove supported modules without leaving invalid gaps in the car configuration.
+	•	Modules have correctly replicated inventories and operating states.
+	•	Damage affects the appropriate module.
+	•	Manual repair consumes resources and restores integrity.
+Phase 3: Infinite Route and Biomes
+Deliverables:
+	•	Deterministic world seed.
+	•	One-kilometer chunk generator.
+	•	Railway continuity system.
+	•	Biome transitions.
+	•	Trackside candidate generation.
+	•	Structure placement constraints.
+	•	World streaming and coordinate management.
+Acceptance criteria:
+	•	The train can move continuously across multiple generated chunks.
+	•	The same world seed recreates the same initial route and structure placement.
+	•	Chunk transitions do not produce missing track, visible collision gaps, or abrupt coordinate errors.
+	•	Terrain and structure generation remain within a predictable performance budget.
+Phase 4: Structures, Interiors and Loot
+Deliverables:
+	•	At least four facility archetypes.
+	•	Modular interior graph generator.
+	•	Compatible room connectors.
+	•	Navigation generation and validation.
+	•	Containers, keys, lockpicks and loot tables.
+	•	Persistent structure identities and loot states.
+Acceptance criteria:
+	•	Each archetype creates several valid layouts.
+	•	Mandatory entries and exits remain reachable.
+	•	Locked containers cannot be opened without satisfying their requirements.
+	•	Loot remains unchanged when a structure unloads and reloads.
+	•	Invalid layouts fall back safely without blocking the railway or trapping players.
+Phase 5: Day/Night and The Forgotten
+Deliverables:
+	•	Authoritative world clock.
+	•	Lighting, fog, and ambience transitions.
+	•	Safe-zone boundary system.
+	•	Enemy controller and perception framework.
+	•	Shamblers, Stalkers, and Blind Crawlers.
+	•	Pursuit encounter director and its initial entity prototype.
+Acceptance criteria:
+	•	Normal nights are peaceful for players on or within 15 m of the train.
+	•	Hostile AI activates only when night and safe-zone eligibility rules are satisfied.
+	•	Enemies disengage correctly when players return to the safe zone.
+	•	Enemy behavior is readable and does not rely on unavoidable attacks.
+	•	The fifth-night event overrides the ordinary rules deliberately and visibly.
+Phase 6: Co-op Networking and Saving
+Deliverables:
+	•	Four-player server-authoritative session.
+	•	Replicated train controls, interactions, loot and damage.
+	•	Shared inventories and crafting.
+	•	Player disconnect/reconnect records.
+	•	Session recovery journal.
+	•	Biome Station checkpoint transactions.
+Acceptance criteria:
+	•	All players see consistent train position, inventory, and module state.
+	•	Two players cannot duplicate the same item through simultaneous pickup or crafting requests.
+	•	A client disconnect does not corrupt shared inventories.
+	•	Reconnection restores a validated player state.
+	•	Station activation commits a consistent snapshot.
+	•	An interrupted checkpoint never overwrites the last valid checkpoint with an incomplete save.
+Phase 7: Pursuit, Progression and Content Expansion
+Deliverables:
+	•	Mounted heavy weapons.
+	•	Multiple Pursuit attacks and phases.
+	•	Weapon ammunition, heat and component damage.
+	•	T3/T4 loot, blueprints, and advanced train modules.
+	•	More biomes and structures.
+	•	Advanced locomotion, environmental hazards, and quality-of-life systems.
+Acceptance criteria:
+	•	A four-player team can prepare, survive, and recover from The Pursuit.
+	•	Different train configurations create viable, distinguishable strategies.
+	•	Advanced upgrades improve performance without trivializing fuel and maintenance.
+	•	Higher-tier loot provides meaningful choices rather than making lower tiers irrelevant.
+17. Automated Testing and Quality Assurance
+Procedural survival games require more than manual playtesting. Trackbound needs automated tests that validate generated content, simulation invariants, multiplayer transactions, and long-duration sessions.
+17.1 Procedural Generation Tests
+Test
+Procedure
+Pass condition
+Seed reproducibility
+Generate the same region twice with the same seed
+Initial layouts and placement metadata match
+Structure diversity
+Generate hundreds of structures from each archetype
+Layouts exhibit meaningful variation without invalid geometry
+Railway continuity
+Generate long sequences of adjacent chunks
+Track connections remain valid
+Structure spacing
+Generate large routes and analyze placement distances
+Density targets and minimum spacing rules are respected
+Loot conservation
+Collect items, unload the area, then reload it
+Collected items do not respawn
+Exit validation
+Attempt to find a valid path to each required exit
+Mandatory traversal is possible
+Navigation validation
+Test generated NavMesh connectivity
+Required enemy patrol and traversal paths exist
+Persistence recovery
+Interrupt a journal write and reload
+Last valid state remains recoverable
+17.2 Multiplayer Race-Condition Tests
+The server must preserve inventory and world-state integrity under simultaneous player actions.
+Examples:
+	•	Two players attempt to pick up the same coal chunk.
+	•	Two players attempt to open the same safe.
+	•	A player disconnects while transferring an item.
+	•	An Engineer repairs a component while it receives damage.
+	•	A player enters construction mode while another changes the same train configuration.
+	•	The host disconnects while the station checkpoint is being committed.
+	•	A client reconnects with an outdated inventory snapshot.
+	•	Two players try to purchase or craft using the same shared resources.
+Pass condition: Every operation commits once, fails explicitly, or rolls back safely. No transaction silently creates or destroys resources.
+17.3 Simulation Invariant Tests
+Implement assertions for rules that must never be violated.
+Examples:
+Invariant 1:
+A player inside the normal-night safe zone
+cannot receive damage from ordinary Forgotten enemies.
+
+Invariant 2:
+A container's committed loot cannot be generated twice.
+
+Invariant 3:
+A train module cannot occupy an invalid construction footprint.
+
+Invariant 4:
+A successful inventory transfer removes the item
+from the source exactly once and adds it to the destination exactly once.
+
+Invariant 5:
+A successful checkpoint always references a validated,
+complete save snapshot.
+
+Invariant 6:
+The Pursuit event has one authoritative state and cannot
+start multiple independent copies on the same world.
+
+Invariant 7:
+A player disconnect cannot duplicate the player's inventory.
+These assertions should be available in development builds and included in automated multiplayer tests.
+17.4 Balance and Playtesting Metrics
+Track these metrics during internal testing:
+Metric
+What it reveals
+Fuel consumption per kilometer
+Whether travel is too expensive
+Time spent maintaining the locomotive
+Whether maintenance overwhelms exploration
+Expedition return rate
+Whether ordinary nights are appropriately dangerous
+Average time outside the safe zone
+Whether structures offer enough value
+Structure discovery distance
+Whether the world feels empty or overcrowded
+Loot value per minute
+Whether scavenging is balanced across biomes
+Player incapacitation frequency
+Whether enemy damage is fair
+Train repair time
+Whether damage recovery is satisfying or tedious
+Night 5 survival rate
+Whether preparation and defense are meaningful
+Reconnection success rate
+Whether multiplayer persistence is reliable
+Checkpoint recovery rate
+Whether saving is resilient to failures
+Average frame and server update time
+Whether simulation budgets are being respected
+Use telemetry for design decisions, not as a substitute for qualitative playtesting. A low exploration rate may reflect boring interiors, confusing navigation, or unappealing rewards—not necessarily excessive enemy strength.
+
+18. Final Technical Decisions
+The following rules should serve as the authoritative baseline for the first playable implementation.
+System
+Implementation decision
+Perspective
+Strict first-person POV
+Multiplayer
+Four-player cooperative Host/Client and Dedicated Server support
+World generation
+Seeded, chunk-based, reproducible railway generation
+Chunk size
+1 km
+Biome scale
+10–100 km
+Structure interiors
+Modular room graphs with physical validation
+Persistent structures
+Stable object IDs and saved state overrides
+Loot
+Four primary tiers, container-specific tables
+Locomotion
+Unified state machine with specialized traversal modes
+Train construction
+Grid-based modules attached to cars
+Train controls
+Physical controls linked to authoritative simulation variables
+Ordinary-night safety
+Complete protection on the train and within 15 m of its exterior
+Ordinary night AI
+Activates when a player is outside the safe zone during a hostile night phase
+Night 5
+Distinct Pursuit event that overrides ordinary safe-zone protection
+Persistence
+Durable checkpoints at stations, supplemented by a session recovery journal
+Disconnect handling
+Player-specific reconnect records with transactional inventory handling
+Saving
+Atomic checkpoint commits and versioned save data
+Failure recovery
+Explicit repair, recovery, and rollback rules
+Canonical time configuration: Use a 48-minute cycle: 30 minutes of daylight (3 minutes dawn, 24 minutes full day, 3 minutes dusk) and 18 minutes of night. This replaces the earlier 15-minute night entry in the preliminary phase table. Divide the night into 3 minutes of nightfall, 9 minutes of deep night, 3 minutes of predawn tension, and 3 minutes of dawn transition.
+Development Priority
+The most important engineering dependency is the train simulation and its persistence model. Build those before expanding the world into dozens of structures or implementing elaborate hostile AI.
+The recommended order is:
+	1	Make the locomotive, fuel, braking, and first-person movement reliable.
+	2	Establish the modular train and authoritative inventory transactions.
+	3	Build deterministic world streaming and procedural structure validation.
+	4	Add the safe zone and ordinary-night AI state machines.
+	5	Implement station checkpoints and session recovery.
+	6	Complete four-player co-op and Night 5.
+	7	Expand biome variety, advanced loot, and high-fidelity interactions.
+The goal is a game in which every system reinforces the same central experience: the railway makes the world feel endless, the train gives players somewhere to belong, and leaving that moving sanctuary creates a meaningful reason to prepare, cooperate, and return.

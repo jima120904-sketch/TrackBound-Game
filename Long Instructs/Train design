@@ -1,0 +1,237 @@
+**NOTICE!!! If you are not redesigning and makign from scratch, just follow what the text below says to make the train look as good as possible.
+
+# 24. COMPLETE TRAIN REDESIGN — REBUILD IT AS A REAL PIECE OF MACHINERY
+
+## This is a mandatory architectural redesign, not another cosmetic improvement
+
+The existing train is visually unacceptable. Repeated attempts to improve the interior have not produced a convincing result. The interior looks artificial, poorly assembled, blocky, and unrealistic. The exterior also lacks coherent design, convincing proportions, and the structural logic of an actual train.
+
+Do not continue making minor adjustments to the existing arrangement of boxes and primitive objects.
+
+**I explicitly authorize you to redesign and replace the entire train's visual construction, including its locomotive, carriage exteriors, interior architecture, equipment placement, mechanical details, materials, lighting, and collision geometry.**
+
+You may replace the existing procedural train-generation system if its architecture prevents a high-quality result. However, preserve and reconnect the working gameplay systems, including train movement, acceleration, braking, fuel consumption, furnace interactions, damage, repairs, modular construction, player movement, networking, and saving wherever implemented.
+
+The objective is to create a coherent, believable industrial train that looks as though it was designed by an experienced 3D environment artist rather than assembled automatically from unrelated cubes.
+
+## 24.1. Design the complete train before constructing it
+
+Before generating individual objects, establish a consistent design specification for the entire train.
+
+Define:
+- The locomotive's overall length, width, height, and silhouette.
+- The dimensions and structural proportions of each carriage type.
+- Wheel diameter, bogie spacing, axle positions, and rail height.
+- Floor height relative to the rails.
+- Wall thickness, ceiling height, and doorway dimensions.
+- Window proportions and placement.
+- Coupler position and carriage connection geometry.
+- Interior walking clearances.
+- Structural frame and exterior shell dimensions.
+- Attachment points for equipment and modular components.
+
+Use one consistent coordinate system and shared dimensional standards across every carriage.
+
+Establish a proper structural hierarchy: the train body defines the frame, the frame defines the attachment points, and equipment attaches to those points. Do not independently place every component using arbitrary coordinates.
+
+The train must make sense as a single manufactured machine, both from the outside and from within.
+
+## 24.2. Build proper locomotive geometry
+
+Create a locomotive with a distinctive, coherent silhouette and believable industrial proportions.
+
+The design should include an appropriately shaped body, structural underframe, wheel assemblies, bogies, couplers, suspension details, access panels, doors, windows, roof equipment, vents, pipes, steps, handrails, and other mechanically plausible components.
+
+Use actual designed geometry for major forms instead of assembling everything from identical rectangular primitives.
+
+Use bevelled edges, rounded transitions, properly fitted panels, and consistent surface thickness where appropriate. Ensure that openings are actual openings in the geometry rather than dark rectangles pasted onto solid surfaces.
+
+Mechanical assemblies must have believable relationships. Wheels must align with the rails, bogies must sit beneath the chassis, couplers must connect adjacent cars, and steps and handrails must be positioned where a person could plausibly use them.
+
+Avoid:
+- Oversized wheels or miniature wheels.
+- Floating components.
+- Random protrusions.
+- Impossible machinery.
+- Arbitrary pipes crossing walkways.
+- Panels that intersect or leave gaps.
+- Windows placed without regard to the interior.
+- Equipment with no structural attachment.
+- Identical decorative cubes repeated everywhere.
+
+The result must have a readable silhouette even from a distance. Close-up details must reinforce the design rather than compensate for a weak silhouette.
+
+## 24.3. Rebuild every carriage as a complete architectural unit
+
+Every carriage must have a deliberate exterior shell, interior layout, structural frame, floor, ceiling, walls, doors, windows, and mechanical connections.
+
+Create a reusable carriage architecture with clearly defined dimensions and attachment points. Each carriage type can then use the common structure while having a distinct purpose and layout.
+
+Examples include:
+- Locomotive and control cabin.
+- Fuel and furnace car.
+- Cargo and storage car.
+- Workshop and repair car.
+- Living and sleeping car.
+- Medical or utility car.
+- Defensive or equipment car.
+
+Only implement the types appropriate to the existing game's design and progression.
+
+Do not generate a generic rectangular room and fill it with random props. Design the room layout around its function.
+
+For example, a workshop needs accessible work surfaces, organised tool storage, usable clearances, and a logical relationship between equipment. A living car needs plausible sleeping arrangements, storage, lighting, and passageways. A furnace area needs space for fuel handling, maintenance access, and safe movement around hot equipment.
+
+The player's view must not reveal obvious gaps between the interior and exterior shells. Interior walls, windows, doors, and floors must align with their corresponding exterior components.
+
+## 24.4. Treat the interior as real architecture
+
+The interior is currently the weakest part of the train and requires a particularly thorough redesign.
+
+Do not begin by adding furniture or decorative objects. First establish a convincing architectural shell and a usable floor plan.
+
+Build the interior in this order:
+
+1. Structural frame and overall carriage dimensions.
+2. Continuous floor and floor-level transitions.
+3. Wall and ceiling geometry.
+4. Door openings and connected passageways.
+5. Window openings and correctly fitted frames.
+6. Structural supports and wall panels.
+7. Large functional equipment.
+8. Storage, furniture, and work surfaces.
+9. Lighting fixtures and functional controls.
+10. Small mechanical details and environmental clutter.
+
+Every component must respect the architecture.
+
+Wall panels should fit together. Floor surfaces should meet cleanly. Ceiling supports should attach to the ceiling or frame. Doors must fit their openings. Windows must align between the interior and exterior. Furniture must sit on the floor instead of floating above it.
+
+Use a restrained industrial design language with consistent materials, repeated structural dimensions, and deliberate detailing.
+
+Do not fill every surface with objects. Realistic interiors need negative space, accessible equipment, sensible circulation, and a hierarchy of visual importance.
+
+## 24.5. Make the interior feel manufactured, not procedurally assembled
+
+Use consistent construction logic throughout the train.
+
+Structural metal, painted panels, rubber seals, glass, wood, exposed steel, and other materials should have distinct appearances and appropriate surface properties.
+
+Introduce details such as panel joints, fasteners, hinges, handles, brackets, reinforcement ribs, protective covers, ventilation grilles, and cable routing only where they make structural or functional sense.
+
+Use subtle wear, grime, grease, and rust in plausible locations. Avoid scattering random scratches and noise across every surface.
+
+Maintain a clear hierarchy:
+- Large-scale architecture establishes the space.
+- Medium-scale equipment establishes the function.
+- Small-scale details establish craftsmanship and wear.
+
+Do not attempt to achieve realism merely by increasing polygon counts or adding hundreds of small objects.
+
+The shape, proportions, placement, and relationship of components matter more than the quantity of detail.
+
+## 24.6. Use a proper model-building strategy
+
+If the current procedural geometry generator cannot create convincing results, change the modelling approach.
+
+Use a hybrid construction system where appropriate:
+- Designed meshes for the locomotive body and other major forms.
+- Reusable, carefully modelled mechanical assemblies.
+- Modular structural panels and architectural components.
+- Parametric dimensions for carriage lengths and layouts.
+- Instanced repeated details where useful.
+- Procedural generation for appropriate variation rather than every structural decision.
+
+If suitable model assets already exist in the project, inspect and reuse them where appropriate.
+
+If the project supports importing external models, use that capability if suitable assets are available and their licences permit it. Do not assume assets exist, invent file paths, or introduce dependencies on unavailable models.
+
+If the available environment cannot produce a sophisticated model in one procedural pass, create a well-designed modular mesh system with coherent proportions rather than pretending that more random primitives will produce a realistic train.
+
+The implementation must remain compatible with the existing engine and build system.
+
+## 24.7. Rebuild the train's collision architecture alongside the geometry
+
+The collision system must be designed around the new architecture rather than inherited blindly from the old blocky model.
+
+Create separate collision representations for:
+- The locomotive and carriage floors.
+- Structural walls.
+- Door frames.
+- Major equipment.
+- Exterior surfaces.
+- Steps, ladders, and intended climbing surfaces.
+- Functional objects that should physically obstruct the player.
+
+Small decorative geometry must not become an accidental obstacle.
+
+Validate the player's capsule clearance throughout every intended walkway. Check doorways, narrow passages, corners, stairs, connections between cars, and areas around machinery.
+
+Do not let overlapping collision boxes create traps or invisible walls.
+
+Ensure that train movement, character movement, jumping, clambering, and moving-platform behaviour continue to work correctly.
+
+## 24.8. Add lighting that reinforces the architecture
+
+The train interior must look convincing under its own lighting as well as daylight.
+
+Use appropriate window light, realistic shadowing, subtle ambient illumination, and functional lamps. Furnace light should illuminate nearby surfaces naturally where supported by the renderer.
+
+Use physically coherent materials and lighting. Metal should reflect light according to its roughness. Glass should behave differently from painted steel. Wood, rubber, soot, and grime should not share the same generic material.
+
+Avoid uniformly bright interiors, excessively shiny surfaces, completely black corners, and artificial ambient lighting that eliminates all depth.
+
+The interior should remain readable during gameplay without losing its industrial atmosphere.
+
+## 24.9. Mandatory visual inspection of the actual train
+
+Do not declare the train complete simply because the meshes render or the TypeScript compiles.
+
+Inspect the train from:
+- A distant exterior view.
+- A close exterior view.
+- A view at wheel and chassis level.
+- The driver's seat.
+- Normal first-person walking height.
+- Every major interior space.
+- Doorways and connections between carriages.
+- Nighttime and artificial-light conditions.
+
+Capture screenshots where possible.
+
+Look specifically for bad proportions, floating objects, disconnected panels, wall intersections, inconsistent scale, awkward sightlines, poor equipment placement, and visually implausible construction.
+
+If a screenshot reveals that a carriage still looks like a box filled with random primitives, revise the actual geometry and layout.
+
+If a doorway looks cramped or the player gets stuck, correct the architecture and collision rather than instructing the player to avoid the area.
+
+Do not claim visual verification unless the game was actually rendered and inspected.
+
+## 24.10. Acceptance criteria for the complete train redesign
+
+The train redesign is complete only when:
+
+- The locomotive and carriages have coherent proportions and a consistent design language.
+- Major components are properly aligned and structurally plausible.
+- Exterior panels fit together without obvious gaps.
+- Interior walls, floors, ceilings, windows, and doors form a coherent architectural space.
+- Every carriage has a deliberate functional layout.
+- The player can navigate all intended interior routes without getting stuck.
+- Decorative details do not create accidental collision.
+- Materials and lighting reinforce the geometry.
+- The train looks convincingly designed from both close and distant viewpoints.
+- Existing gameplay systems remain functional.
+- The new geometry works with the terrain, track, physics, and streaming systems.
+- Actual testing results and any remaining limitations are reported honestly.
+
+## 24.11. Final instruction
+
+Do not preserve the existing train's appearance merely because its geometry generator already exists.
+
+Preserve the gameplay and technical systems that work, but replace the visual architecture wherever necessary.
+
+I would rather have a smaller number of carefully designed, coherent carriages than a huge train made of ugly blocks.
+
+**Redesign the complete train as a real, manufactured, mechanically coherent vehicle with a believable exterior, an architecturally convincing interior, functional equipment placement, and collision geometry designed for first-person navigation.**
+
+Inspect the current implementation, identify why repeated attempts have failed, and change the underlying modelling strategy. Do not give me another cosmetic patch or another randomly assembled procedural train.

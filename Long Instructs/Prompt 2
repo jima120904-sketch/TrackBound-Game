@@ -1,0 +1,610 @@
+# Trackbound — Game Design & Systems Blueprint
+
+*Technical GDD v0.1 · Procedural Structures & Loot · Night Survival · Locomotion & Interaction · Co-op & Persistence · October 15, 2026*
+
+## 0. Global Constants & Conventions
+
+Every number in this document is a data-driven default (hot-reloadable config asset) to be tuned in playtests, unless marked FIXED. The spec is engine-agnostic; Unity/Unreal notes appear only where implementation diverges.
+
+| Constant | Default | Range | Consumed by |
+| --- | --- | --- | --- |
+| Unit scale | 1 unit = 1 m | FIXED | All systems |
+| `SAFE_RADIUS` | 15 m from nearest car hull (signed distance) | FIXED canon; emitter damage lowers it | Night Director, AI, Combat |
+| `DAY_LENGTH` | 30 min real time | 20–60 | Atmosphere, Night Director |
+| `NIGHT_WINDOW` | 9 min threat-active (Early Night + Deep Night + Pre-Dawn) | 6–15 | Night Director |
+| `PURSUIT_INTERVAL` | Every 5th night (5, 10, 15…) | FIXED | Pursuit Director |
+| Biome length | 10–100 km | Per biome | Route Director |
+| Engine speed caps | E1 45 · E2 65 · E3 90 km/h; Blueprint engines 60–130 | — | Train sim, Pursuit |
+| Station | 1 per biome boundary; 150 m sanctuary field | FIXED | Persistence |
+| Players | 1–4 | FIXED | Netcode, scaling |
+| Tick rates | 30 Hz server sim; 60 Hz fixed-step physics | — | Net, Physics |
+| Streaming | 256 m terrain tiles; 512 m POI cells; origin rebase every 2 km; double-precision world coordinates | — | Streaming |
+| PRNG | PCG32, integer-only in all generation code | FIXED | Determinism |
+
+**Determinism rule.** All generators derive seeds as `WorldSeed → BiomeSeed → BlockSeed → StructureSeed → InteriorSeed → ContainerSeed` using `Hash(parent, childId)`. Clients receive seeds plus deltas, never generated geometry.
+
+## 1. Dynamic Procedural Structures & Loot Tiers
+
+### 1.1 Rail Corridor & Procedural Generation Loop
+
+The Route Director extends one master rail spline (clothoid-blended Catmull-Rom) in 2 km Rail Blocks, generated when the train is within 6 km of the block start. Constraints: minimum curve radius 180 m (E1) to 400 m (fast engines), gradient ≤ 3% (4.5% in mountain biomes), automatic bridge/tunnel flags from terrain-crossing tests. Structures live in corridor coordinates `(s, t)`: `s` is distance along the rail, `t` is lateral offset.
+
+| Placement class | Offset `t` | Access | Target share | Examples |
+| --- | --- | --- | --- | --- |
+| `ON_RAIL` | 0 m (occupies the main line) | Train must stop; route is gated | 25% | Tunnel, Rail Yard, Wreckline |
+| `ADJACENT` | 30–400 m | Visible from the train; short on-foot trek | 45% | Hydro-Dam, Signal Spire |
+| `REMOTE` | 400–1,500 m | Spur line, handcar, or long trek | 30% | Automated Factory |
+
+**Generation loop** (worker thread; output is plain data):
+
+```
+OnRailBlockGenerated(block):
+  rng = PCG32(Hash(worldSeed, biome.id, block.index))
+  budget = PoiBudget(biome.density, block.length, difficultyRing)   // avg 1 structure per 2.5 km
+  candidates = PoissonDisc(block.corridor, minDist = 450, rng)      // in (s, t) space
+  for c in Shuffle(candidates, rng) while budget.remaining > 0:
+      type = PickStructure(biome.table, Suitability(c), recentTypes, rng)
+      if not FootprintFits(type, c): continue
+      rec = StructureRecord(seed = Hash(rng.Next(), c.id), type, c.transform)
+      StampTerrain(rec); PlaceExteriorShell(rec); BuildSpurIfRemote(rec)
+      AllocateLootBudget(rec)         // section 1.4
+      RegisterNightNodes(rec)         // Forgotten nest tags, section 2
+      budget.Spend(type.cost)
+  ValidateReachability(block)         // NavMesh stitch; failed POIs shift ±50 m up to 3 times, then cull and refund
+```
+
+- **Suitability (0–1):** slope limit per type (Yard ≤ 3°, Dam needs gorge walls ≥ 35°), water adjacency, footprint clearance against rails and roads, biome affinity weight.
+- **Variety Governor:** a type’s pick weight is ×0.35 for each instance among the last 5 picks; `ON_RAIL` structures keep ≥ 900 m separation.
+- **Guarantees:** at least 1 structure with Tier 3 loot potential per 8 km, and at least 1 Fuel Cache (coal or wood) per 12 km so the fuel loop cannot soft-lock.
+- **Terrain stamp:** heightmap blend with 20 m falloff, splat override (gravel, concrete), foliage exclusion mask.
+- **Lazy instantiation:** beyond 1.5 km only the `StructureRecord` (\~64 bytes) exists. The exterior shell loads at 1.5 km, the interior generates at 600 m, and interior meshes instantiate at 250 m.
+
+### 1.2 Structure Catalog
+
+| ID | Structure | Class | Biomes | Footprint | Interior shape | Danger | First clear |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S-01 | Abandoned Hydro-Dam | `ADJACENT` (rail crosses crest) | Alpine, Boreal gorge, Temperate river | 400 × 220 m, 60–120 m tall | Vertical stack: Crest → Gallery → Penstock → Turbine Hall → Tailrace | 3/5 | 25–35 min |
+| S-02 | Overgrown Rail Yard | `ON_RAIL` | Temperate forest, Jungle, Taiga | 600 × 180 m | Rolling-stock interiors + Roundhouse | 2/5 | 20–30 min |
+| S-03 | Collapsed Mountain Tunnel | `ON_RAIL` | Alpine, Tundra, Canyon | 300–1,800 m long | Linear spine + adits + shafts | 3/5 | 15–30 min |
+| S-04 | Decaying Automated Factory | `REMOTE` (private spur) | Industrial waste, Tundra, Desert | 350 × 350 m | Production ring + mezzanines + basement vault | 4/5 | 30–45 min |
+| S-05 | Wreckline (Derailed Convoy) | `ON_RAIL` | Any | 400–900 m | Chain of wrecked cars | 1/5 | 10–15 min |
+| S-06 | Signal Relay Spire | `ADJACENT` | Any elevated | 40 × 40 m, 70 m tall | Three-landing vertical climb | 2/5 | 8–12 min |
+
+**S-01 · Abandoned Hydro-Dam — “Penstock”**
+
+- **Skeleton:** the main line crosses the dam crest. Five vertical tiers connected by inspection galleries, a lift shaft and a spiral stair.
+- **Signature system, Hydro Zones:** each lower tier has a discrete water state (Dry / Knee / Flooded). Sluice wheels and spillway levers change state over 60–90 s. Draining the Turbine Hall exposes the Tier 3 cache but floods the Tailrace route. Restoring the generator (20 fuel chunks) powers lifts and blast doors.
+- **Hazards:** electrified water when a live conductor is submerged (25 dmg/s plus stagger), algae slip (friction ×0.4), falls over 3 m, lightless galleries.
+- **Loot identity:** electrical stock (copper windings, insulators, governor valves); Dam Master’s Safe (grade 3); Turbine Runner Blade (60 kg, oversize).
+- **Night profile:** Crawler nests in the sump; concrete carries sound (noise radius ×1.4).
+
+**S-02 · Overgrown Rail Yard — “The Tangle”**
+
+- **Skeleton:** the main line fans into 6–14 parallel tracks, a turntable and a roundhouse. Derelict rolling stock (boxcars, tankers, coaches, cabooses) forms the interior modules.
+- **Signature system, Switch Network:** track points are physics levers and the yard is a directed graph. Players route a handcar (or the train) to the exit track; wrong routes dead-end at buffer stops or derail at speed. The turntable needs power or a two-person crank.
+- **Salvage:** intact cars can be coupled and towed away as Car Blocks for customization (Tankers store fuel, Boxcars add storage, Flatcars carry hardpoints).
+- **Hazards:** strangler vines block doors (axe or machete, 6–12 s), rusted floor panels (fall-through), thorn thickets (slow plus bleed).
+- **Loot identity:** coal hoppers (bulk T1–T2 fuel), couplers and wheel sets (T2–T3), Station Master’s Strongbox (grade 2).
+- **Night profile:** highest nest density outside tunnels; flagged Do Not Approach After Dusk.
+
+**S-03 · Collapsed Mountain Tunnel — “The Throat”**
+
+- **Skeleton:** a 300–1,800 m bore with a rockfall plug mid-length, side adits, ventilation shafts, a signal box and a powder magazine.
+- **Signature system, Route Gate:** the plug blocks the main line. Solutions: **Dig** (pickaxe or jackhammer, 6–10 min of cooperative work), **Blast** (charges from the magazine; raises Stability Debt and risks secondary collapse), or **Bypass** (vent shafts lead to the Old Line spur: +2 km detour with its own events).
+- **Stability Debt:** blasting, jackhammering and gunfire fill a 0–100 meter. At 60 and 85 the ceiling gives 3 s of telegraphed dust and creak cues before a rockfall (35 dmg in the impact zone).
+- **Hazards:** total darkness at noon; methane pockets (a Davy lamp flame turns blue, open flames flash-ignite); flooded low points.
+- **Loot identity:** mining supplies, explosives (heavy), steel (T2–T3), Foreman’s Safe (grade 3).
+- **Night profile:** tunnel mouths funnel packs (density ×1.3).
+
+**S-04 · Decaying Automated Factory — “The Line”**
+
+- **Skeleton:** production halls ringing an Assembly Spine, plus Management Mezzanine, Parts Warehouse (high racks), Paint Hall, Loading Dock and a basement Prototype Vault.
+- **Signature system, Residual Automation:** four Power Sectors, each gated by a breaker puzzle. Powering a sector wakes its conveyors, press arms and sentries; powering all four enables the Fabricator, which crafts T3 components from T1–T2 inputs.
+- **Hazards (hostile by day):** Patrol Loaders (HP 400, slow, heavy knockback), Welder Arms (sweep hazards), Lockdown (blast doors seal for 45 s when an alarm trips; a valve puzzle per sector resets it).
+- **Loot identity:** densest in the game: T3 assemblies, Executive Safe (grade 3), Prototype Vault (grade 4: three code fragments plus Sector 4 power).
+- **Night profile:** sectors broadcast 30 m noise pulses that draw Crawlers.
+
+**S-05 · Wreckline.** A chain of wrecks across the main line. Clear by winching with the train’s Winch Hardpoint or cutting through with the torch. Fuel tankers can be siphoned (hose and pump task); the ammunition car is an explosive chain hazard.
+
+**S-06 · Signal Relay Spire.** A three-landing climb in strong wind. Restoring the relay reveals the map 30 km ahead and extends the Pursuit Omen warning by 60 s.
+
+### 1.3 Randomized Interior Layout System (Module Assembly Pipeline)
+
+Interiors are assembled from authored room modules by a three-pass pipeline, so no two structures share a layout while every layout stays navigable, fair and performant.
+
+**Pass A — Mission Graph (topology).** Each structure type owns a graph grammar: `Start → Entrance · Hub{2–4} · Branch{1–3} · Vault`. Rewrite rules expand nodes into rooms, then the generator inserts Locks (locked door, power gate, valve, vine block, collapsed passage) and their Keys. Invariants:
+
+- **Key-before-Lock:** every Key node is reachable without passing its Lock.
+- **Loop-backs:** insert 1–2 shortcut edges (one-way drop, ladder, lift) so routes form circuits.
+- **Depth:** the Vault sits at ≥ 60% of max graph depth.
+- **Pacing:** at most 3 consecutive dead-end nodes; every 4th node is a decision point (≥ 2 exits).
+
+| Structure | Graph nodes | Mandatory nodes | Gate types |
+| --- | --- | --- | --- |
+| Hydro-Dam | 14–22 | Crest Entrance, Control Room, Sluice Gallery, Turbine Hall | Power, Valve, Lift |
+| Rail Yard | 12–20 | Gatehouse, Switch Tower, Roundhouse, Strongbox Car | Switch, Vine, Turntable |
+| Mountain Tunnel | 10–16 | Portal, Signal Box, Plug, Powder Magazine | Debris, Gas, Shaft |
+| Automated Factory | 18–30 | Loading Dock, Assembly Spine, 4 Power Sectors, Vault | Breaker, Lockdown, Code fragments |
+
+**Pass B — Module Fit (geometry).** Modules are authored on a 4 × 4 × 3.2 m grid (S = 1×1, M = 2×2, L = 3×4, XL = 4×4 or double height) and expose typed Sockets:
+
+```
+module: dam_gallery_L_03
+size: [3, 1, 4]            # grid cells
+role: [Corridor, Junction]
+theme: [Dam]
+sockets:
+  - {id: N0, type: DOOR_STD,   pos: [0, 0, 2],  dir: N,  width: 1}
+  - {id: S0, type: DOOR_BLAST, pos: [2, 0, -2], dir: S,  width: 2}
+  - {id: U0, type: LADDER,     pos: [1, 1, 0],  dir: UP, width: 1}
+variants: {damage: [intact, damaged, collapsed], mirror: true}
+slots: {container: 2, clutter: 8, hazard: 1, lore: 1, light: 3}
+navmesh: baked_local_tiles    # stitched at socket pairs
+```
+
+The solver is a constraint-propagation pass (WFC-style entropy ordering) over mission-graph nodes. Candidates are filtered by role, size, theme, socket compatibility and the occupancy grid; contradictions backtrack up to 64 steps, then reseed (`attempt` is part of `InteriorSeed`, max 8 attempts). The final fallback is a hand-authored Gold Layout, so generation can never fail.
+
+| Variation lever | Options | Effect |
+| --- | --- | --- |
+| Module choice | 4–9 candidates per role | About 5^12 ≈ 2.4 × 10^8 topologies per structure |
+| Transform | 4 rotations; mirror if flagged symmetric-safe | Breaks memorized silhouettes |
+| Damage state | Intact / Damaged / Collapsed (Decay Noise map) | Collapsed variants seal sockets and force alternate routes |
+| Environment modifier | Flooded, Overgrown, Dark, Frozen, Sparking | Material swaps, hazards, NavMesh cost changes |
+| Dressing set | 3–5 per theme | Changes props, color, lore |
+
+**Pass C — Dressing and validation.** Slots are filled by theme: Container, Clutter, Hazard, Lore, Light, Entity. Rules: adjacent rooms never share a dressing set; 1 lore beat per 3 rooms; container density by room role (Storage 4–8, Office 1–3, Corridor 0–1). Validation gates:
+
+1. BFS reachability from Entrance to every Key, Lock and Vault.
+2. NavMesh stitch with OffMeshLinks at doors, ladders, stairs and vents (no runtime bake, under 4 ms per structure).
+3. Corridor sightlines capped at 28 m without a decision point.
+4. At most 12 shadow-casting dynamic lights per module.
+5. Portal-based occlusion: every module is a cell, every door a portal.
+
+**Streaming and network.** The graph and solver are pure data jobs on a worker thread. Output is an `InteriorBlueprint` (list of `moduleId, transform, variantFlags, dressingSeed`; a few KB). Instantiation is time-sliced (≤ 2 ms per frame): shell plus first 3 modules at 250 m, remaining modules on door proximity. Interiors are never replicated: the server sends `(StructureSeed, attempt)`, and each client regenerates and verifies a CRC32 `LayoutHash`; a mismatch triggers a blueprint resync. Anti-repetition: a ring buffer of the last 12 interiors rejects any candidate whose module-set Jaccard similarity to a recent same-type interior exceeds 0.6. Interiors use probe-based GI baked per module prefab plus dynamic local lights.
+
+### 1.4 Loot Tiers, Containers & Allocation
+
+| Tier | Name | Value | Example items | Primary use | Share of drops |
+| --- | --- | --- | --- | --- | --- |
+| T1 | Common Scrap | 1 pt | Scrap metal, rusty fasteners, rags, wood planks, glass, copper scrap, coal and wood chunks | Patches, kindling, basic crafting, fuel | \~60% |
+| T2 | Uncommon Components | 3 pts | Steel plate, gasket set, bearings, pipe, hose, lead-acid battery, fuse pack, basic lockpicks, gas canister, flare, canned food | Repairs, torch fuel, cooking, mid-tier crafting | \~28% |
+| T3 | Rare Assemblies | 9 pts | Pressure gauge, boiler tube bundle, governor valve, copper windings, cable drum, optics lens, armor plate, autocannon barrel, advanced med kit, emitter core | Engine upgrades, heavy weapons, hardened hull, hardened lockpicks | \~10% |
+| T4 | Exotic Engine Blueprints | 40 pts | Full blueprints or 3-part fragments, Prototype Boiler Core, Emitter Mk III Schematic | Unlocks new engine classes | under 2% |
+
+**Tier 4 blueprint lines** (each is a full engine class with a distinct playstyle):
+
+| Blueprint | Class | Playstyle | Key stats |
+| --- | --- | --- | --- |
+| BP-M Mallet Articulated Drive | Hauler | +50% max cars, strong on grades | 70 km/h cap, +35% fuel use |
+| BP-T Turbo-Electric Hybrid | Quiet runner | Battery-buffered; noise ×0.4; suits night running | 80 km/h, battery bank upkeep |
+| BP-X High-Pressure Express | Speed | Pursuit specialist | 130 km/h, ×2 boiler wear |
+| BP-C Condensing Tender Locomotive | Range | Water recycling, −40% fuel | 60 km/h, complex plumbing upkeep |
+
+Fragments (1/3, 2/3, 3/3) drop from different structure types, which forces co-op coordination and route planning.
+
+**Containers**
+
+| Container | Access | Tool and time | Rolls | T1/T2/T3/T4 weight % | Noise |
+| --- | --- | --- | --- | --- | --- |
+| Scrap Pile | Free | Hands | 1–3 | 90/10/0/0 | 2 m |
+| Toolbox / Locker (grade 1 lock on some) | Latch | Hands or basic pick | 2–4 | 65/30/5/0 | 4 m |
+| Wooden Crate | Pry | Hands or crowbar, 2 s | 2–4 | 70/27/3/0 | 6 m |
+| Industrial Crate (steel) | Latched | Crowbar, 3 s | 3–6 | 45/40/14/1 | 20 m |
+| Sealed Industrial Crate | Bolted | Wrench or impact tool, 8 s | 3–6 | 20/45/30/5 | 25 m |
+| Locked Safe, grade 1–2 (wall, desk) | Locked | Basic lockpick | 2–3 | 10/45/40/5 | 3 m |
+| Locked Safe, grade 3 (office, control room) | Locked | Hardened pick, code, or thermal lance | 2–4 | 0/30/55/15 | 3 m |
+| Vault Cache, grade 4 | Locked + powered | Master pick + 3 code fragments + sector power | 2–3 | 0/0/40/60 | 3 m |
+
+**Locked Safe minigame (first-person, tactile).** The left hand holds the tension wrench (hold RMB); the right hand sweeps the pick (mouse X, 0–180°). Locks have 3 / 4 / 5 / 6 pins by grade (1–4), set in a hidden random order, with sweet-spot widths of ±12° / ±9° / ±6° / ±4°. Feedback is audio-first: ticks sharpen near the sweet spot, plus controller haptics and a subtle wrench-angle cue, with no UI bar. Stress builds while tension is applied off-spot (`rate = 6 + 14 × offset`); the pick snaps at its durability (Basic 40, Hardened 90, Master Set 200), and a snapped pick resets set pins. Alternatives trade risk for speed: **code note** (found in the structure; no pick needed), **thermal lance** (torch, 25 s; each T3+ item has a 25% chance to be destroyed; high noise), **explosive** (50% of contents destroyed; 80 m noise).
+
+**Loot Budget allocation (per structure, deterministic).**
+
+1. Budget (LBP) = base × difficulty ring × party × night. Bases: Dam 140, Yard 110, Tunnel 90, Factory 180, Wreckline 60, Spire 50. Ring: +12% per 50 km, cap ×2.0. Party: 1P ×0.7, 2P ×0.85, 3P ×1.0, 4P ×1.15. Night visit: ×1.5.
+2. Reserve 40 LBP if the structure has a T4-eligible container (Vault Cache or grade 3+ Safe) and the pity rule fires.
+3. Split the rest across containers by weight (Scrap 1, Crate 3, Safe 4, Vault 8).
+4. Each container rolls items until its share or its roll count is exhausted, biasing 40% toward the structure’s affinity category (Dam: electrical; Yard: mechanical and fuel; Tunnel: mining and explosives; Factory: assemblies).
+5. Leftover LBP converts to T1 scrap.
+
+**T4 pity timer.** The counter increases by `dangerRating × 4` per cleared structure; at ≥ 100 the next eligible structure is forced to hold a blueprint fragment and the counter resets. Pacing target: one full blueprint per 90–120 km if players clear at least 60% of Tier 3+ structures.
+
+**Co-op rules.** Contents roll lazily on first open, server-side, from `ContainerSeed`, so all players see the same loot. Carry classes: Light (under 1 kg, pockets), Medium (1–5 kg, backpack), Heavy (5–25 kg, two-hand carry, no sprint), Oversize (25–60 kg, two-player carry, hand truck or winch).
+
+## 2. Night Mechanics & the Away-From-Train Threat
+
+### 2.1 Day/Night Cycle & Atmosphere Director
+
+A single scalar `t ∈ [0,1)` (time of day) drives animation curves for sun and moon elevation, color temperature, exposure, ambient SH, height-fog density, volumetric scattering, shadow distance, LUT blend and audio mix. Default cycle: 30 minutes.
+
+| Phase | Length | Sun / moon | Fog density · outside visibility | Look | Audio bed | Threat state |
+| --- | --- | --- | --- | --- | --- | --- |
+| Dawn | 2:00 | Sun rises, 3,200 → 5,200 K | 0.0035 · mist burns off over 90 s | Warm lift, long shadows | Birds return, wind drops, music swells | Forgotten dissolve |
+| Day | 16:00 | Sun arc, 5,600 K | 0.0006 · \~3 km | Saturated, full GI | Birds, insects, grass wind, rail clatter, soft acoustic score | None |
+| Dusk | 3:00 | Sunset, 6,500 → 2,800 K | 0.0015 → 0.003 | Orange to violet; shadow distance −40% | Birds fade over 90 s, crickets start, music thins to a pad | Prep window: lamps auto-ignite, Perimeter self-test |
+| Early Night | 3:00 | Moon at 35°, 7,500 K | 0.006 · \~180 m | Saturation −25%, blue-teal LUT; local lights dominate | Night bed: distant calls, creaks; music off | ACTIVE for exposed players (Build-up) |
+| Deep Night | 4:00 | Moon high or overcast | 0.012 · \~90 m | Saturation −45%, vignette; the flashlight is the only reliable sight | 32–40 Hz sub-drone, perimeter hum, false-cue rustles | Peak |
+| Pre-Dawn | 2:00 | Sky brightens from 1:30 | 0.008 and falling | Cold grey-blue | Wind rises, dread bed thins, first bird | Relax, then dissolve |
+
+**Per-player dread blending (client-side).** The Night Director replicates only an `ExposureLevel` (0–1) per player. Each client blends it into: fog density ×(1 + 1.5 × E), draw distance −35%, ambient bed −12 dB, film grain +20%, low-pass cutoff 20 kHz → 8 kHz. Players inside the perimeter see none of it.
+
+**The Perimeter Clear Pocket.** A capsule SDF follows the train as a volumetric-fog mask: density ×0.3 inside, warm local lighting, and a soft heat-shimmer fog wall at 15 m. Outside it, saturation lerps 1.0 → 0.55 across 15–25 m. The emitter’s 60 Hz hum rolls off from 12 m and cuts completely at 15 m, the ‘held breath’ moment.
+
+**Exposure Escalation Ladder** (per exposed player; timers run at `ExposureRate = 1 + d/40`, where `d` is meters beyond the perimeter):
+
+| Time since crossing | Beat | System response |
+| --- | --- | --- |
+| 0 s | Cross 15 m | Hum cuts, HUD ring flickers, heartbeat bed starts |
+| 3 s | Notice | Ambient −6 dB; Director spawn lock released |
+| 8 s | First contact | 2–3 Shamblers spawn 40–70 m out, unseen |
+| 20 s | Shadow | Stalker begins Shadow Tail (if unlocked) |
+| 45 s | Swarm | Crawler pack (6–14) enters Search |
+| 90 s, or `d` over 80 m | Elite | Hollowed Brute check |
+
+### 2.2 The Train Safe Zone (Radio/Thermal Perimeter)
+
+**Field definition.** `dist(p)` is the minimum over all cars and exterior blocks of `SDF_OBB(p, block)`, evaluated in train-local space at 10 Hz per player. The visual boundary sits at 15.0 m; the logical exit at 15.5 m and re-entry at 15.0 m (hysteresis prevents edge flicker). A player standing on the train is always inside.
+
+**Emitter power.** The Perimeter Emitter block draws 4 PU/min from the battery bank (charged by a boiler dynamo). Radius degrades with output, so maintenance becomes survival:
+
+| Emitter output | Radius | Typical cause |
+| --- | --- | --- |
+| 100–60% | 15 m | Normal |
+| 59–30% | 10 m | Low boiler pressure, dynamo wear |
+| 29–1% | 5 m | Empty tender, flooded battery car |
+| 0% | 0 m (train unprotected) | Breaker trip, destroyed emitter |
+
+**Peace rules (hard constraints).**
+
+1. The Night Director tracks only exposed players; safe players have Director budget 0.
+2. No mob may hold a target inside the field; target validity requires attacker and victim both outside.
+3. Mob positions are clamped to at least radius + 1 m; in-flight attacks that would land inside are cancelled.
+4. Spawn exclusion: no spawns within 25 m of any hull, or in line of sight of any player.
+5. Standoff: mobs that lose their target ring at 16–22 m and pace for 20 s (silhouettes visible through the fog wall), then Ebb into the dark.
+
+**Night driving.** Allowed, and mob-free inside the field. Tension comes from 90–180 m visibility, headlamp range (60 / 120 / 200 m by lamp tier) and one environmental Rail Hazard per \~6 km (washout, fallen tree, rockslide). **Stations** project a permanent 150 m sanctuary.
+
+### 2.3 Night Mobs: The Forgotten
+
+Three core mobs attack three separate stealth axes (light, shadow, sound), so no single counter-strategy covers all of them.
+
+| Mob | Role | HP | Speed (m/s) | Senses | Counterplay | Unlocks |
+| --- | --- | --- | --- | --- | --- | --- |
+| Shambler | Light-drawn grunt | 120 | Walk 1.6, run 3.2 | Sight 25 m (110° cone); hearing 12 m; drawn to the brightest light within 40 m | Fire (burn DoT), headshot ×2, leg hit staggers; slower than a sprint | Night 1 |
+| Blind Crawler | Sound-hunting swarm | 45 each (pack of 6–14) | Scuttle 4.5; climbs walls | No sight; hearing 30 m; ground vibration | Silence (crouch, soft surfaces), noise decoys, fire; light is irrelevant | Night 2 |
+| Stalker | Lightbreaker ambusher | 70 | Prowl 2.2, dash 8.5 (1.2 s, 6 s cooldown) | Night vision 45 m; hearing 20 m | Back-to-back stance, burning flare (3 m no-entry), spare bulbs and glow sticks | Night 3 |
+| Wailer | Alarm support | 80 | 3.0 | Sight 30 m | Priority target; its howl adds +20% budget and calls Shamblers within 80 m | Night 4 |
+| Hollowed Brute | Elite | 900 | Walk 2.0, charge 6.5 | Sight 20 m; hearing 15 m | Stagger-immune; dodge the charge into a wall (3 s stun); fire and explosives | Night 6 |
+
+**State machines (HFSM).**
+
+- **Shambler:** Spawned → SeekLight → Chase → Attack (1.4 s wind-up, 18 dmg) → Stagger → Standoff → Dissolve.
+- **Blind Crawler:** Burrow-out → Listen (clinging to walls) → Investigate (speed scales with noise loudness) → Search (6 s spiral) → SwarmAttack (6 dmg per bite) → Scatter (on fire).
+- **Stalker:** Spawned → ShadowTail (stays 15–25 m outside light cones, flanks via the Darkness influence layer) → Isolate (waits until the target faces away or the group splits) → Lunge (aims at the held or head-mounted light) → Smash (destroys the flashlight, 12 dmg; with no light, 25 dmg plus stagger) → Withdraw (8–15 s) → loop; after 3 lunges, Retreat for 40 s.
+- **Wailer:** Lurk (40–60 m) → Howl (every 25 s) → Flee (target within 20 m).
+- **Brute:** Stalk → Charge (1.2 s telegraph, 45 dmg, breaks barricades) → Recover.
+
+**Perception model.** Sight (cone plus occlusion rays), Hearing (noise events with a loudness radius), Light (illuminance at the mob), Vibration (surface impacts). Base noise radius: Crouch 2 m, Walk 6 m, Sprint 14 m, Jump landing 8 m, Door slam 15 m, Lockpick 3 m, Crowbar 20 m, Gunshot 60 m (suppressed 25 m), multiplied by the surface noise factor in section 3.3.
+
+**NavMesh and AI architecture.**
+
+- Tiled NavMesh (64 m tiles) streams with terrain. Three agent profiles: Humanoid (r 0.4, h 1.8), Crawler (r 0.25, h 0.5, wall and ceiling Climb links), Brute (r 0.9, h 2.8).
+- Cost layers: Perimeter (impassable inside the field), Light (+4 for Stalkers, −2 for Shamblers), Noise Memory (heat map that decays over 30 s).
+- The Train NavMesh Surface is pre-baked per car in local space, stitched at couplers and rebuilt asynchronously (≤ 100 ms) when blocks change. Only Pursuit boarders use it.
+- Caps: 14 active mobs per exposed player, 36 server-wide; AI LOD drops avoidance beyond 80 m and despawns out-of-sight mobs beyond 120 m.
+
+**Night Director (macro layer).** Per exposed player: `budget += rate × ExposureRate × partyScale × nightScale` each second. Costs: Crawler 1, Shambler 2, Stalker 6, Wailer 8, Brute 25. Spawn query: sample NavMesh points in a 35–70 m ring and reject any in the frustum or in line of sight (head and feet rays), within 25 m of a hull, or within 6 m of another spawn; prefer terrain-occluded cells and Night Nest tags. Pacing loop: Build-up (0–45 s) → Sustain (45–120 s) → Peak (20 s spike) → Relax (12–20 s enforced lull), repeating.
+
+| Night | New threats | Budget × | Notes |
+| --- | --- | --- | --- |
+| 1 | Shamblers | 1.00 | Teaches the perimeter |
+| 2 | + Blind Crawlers | 1.15 | Teaches noise discipline |
+| 3 | + Stalkers | 1.30 | Teaches light management |
+| 4 | + Wailers | 1.45 | Priority-target play |
+| 5 | The Pursuit | — | Rules change (section 2.4) |
+| 6–9 | + Hollowed Brutes | 1.60–2.00 | Mixed packs |
+| 10, 15, 20… | The Pursuit (variant) | — | Intensity scales with night count; budget cap ×2.50 on other nights |
+
+**Risk and reward.** Night structure visits get ×1.5 loot budget, and Nocturnal Caches (nest stashes) spawn only at night. The Field Beacon (craftable, 3 × T2) creates a 5 m safe bubble for 90 s, 2 charges. At dawn all Forgotten dissolve over 20–60 s.
+
+### 2.4 Night 5 Horde: “The Pursuit”
+
+**Rule changes on Night 5, 10, 15…** The Forgotten Director is suspended and the Pursuit Director takes over. The safe-zone radius drops to 0 from Sighting until Resolution (the entity jams the emitter), so the cars become combat spaces. The train cannot stop: if it does, the gap collapses and Contact follows. A Pursuit that is pending while the train sits in a Station is deferred to the next dusk and returns at +1 intensity (max +2), so it can be delayed but never skipped.
+
+| Night | Entity | Form | Signature attack | Weak points |
+| --- | --- | --- | --- | --- |
+| 5 | The Hollow Express | Phantom locomotive welded from wreckage and Forgotten, searchlight eye | Debris Volleys, Rider pods | Headlamp Eye, Drive Rods, Boiler Heart |
+| 10 | The Centipede | 30 m segmented rail-crawler | Segment slams, side-boarding waves | Exposed joints, Heart segment |
+| 15 | The Siege Engine | Armored drill-ram on tracks | Ram charges, rail-spike barrage | Drill Housing, Coolant Core |
+| 20+ | A random pair of the above plus modifiers | — | — | — |
+
+**Pursuit state machine:** `Idle → Omen → Stalking → Closing → Contact → Breaking → Resolved (Success | Setback)`.
+
+**Rubber-band pacing.** The entity does not run on raw speed. Its velocity is `v_p = v_train + k × (GapTarget(t) − Gap)`, so the dramatic arc holds on any engine tier while player actions move the curve.
+
+| Phase | Time into night | Gap target | Events | Role tasks |
+| --- | --- | --- | --- | --- |
+| Omen | Dusk | — | Rails hum, distant horn, emitter flickers, radio static | Engineer maxes pressure; Defender loads mounts; Medic stocks bandages |
+| Sighting | 0:00–1:30 | 1,500 → 900 m | Searchlight appears behind the last car | Engineer holds speed; Scavenger scouts from the roof |
+| Outriders | 1:30–3:30 | 900 → 400 m | Rail Hounds sprint alongside and leap aboard | Flak and Pitch Burner on boarders |
+| Closing | 3:30–6:00 | 400 → 120 m | Debris Volleys breach hull panels; the coal tender may ignite | Welding, firefighting, hull repairs |
+| Contact | 6:00–8:00 | 120 → 40 m | Entity plates exposed; boarding pods every 12–20 s | Autocannon strips plates; Harpoon slows |
+| Breaking | 8:00–dawn | 40 m | Final Surge; Rear Car Shear if the gap falls under 25 m | All hands; decouple option |
+
+**Gap modifiers.** Drive Rods destroyed: +250 m. Boiler Heart hit: 8 s stagger, +100 m. Headlamp Eye destroyed: Volley accuracy −50%. Engineer holding pressure ≥ 80%: +30 m per minute. Harpoon anchored: −25% entity speed for 20 s. A decoupled rear car dropped as a barrier: +300 m (the car is lost).
+
+**Mounted heavy weapons (Hardpoint blocks, first-person mount).** The gunner locks to the turret ring (limited FOV, recoil, heat gauge). Traverse and elevation use crank wheels, so aiming is physical.
+
+| Mount | Role | Ammo and feed | Crew | Notes |
+| --- | --- | --- | --- | --- |
+| M-1 Rail Autocannon (rear car) | Anti-armor | 40 mm belt boxes (60 rounds); manual belt swap | 1 gunner, +1 loader for +30% rate of fire | 220 DPS vs plates; ±120° traverse |
+| M-2 Flak Cannon (roof) | Anti-boarder | Airburst hopper, 24 shells | 1 | Wide cone; weak vs plates |
+| M-3 Harpoon Launcher (rear gantry) | Control | 2 charges, winch cable | 1, plus the Engineer easing tension | Cable snaps above 60 km/h in curves |
+| M-4 Pitch Burner (roof or door) | Close defense | Fuel-oil tank, 120 s | 1 | 6 m range, burns boarders, ignites wooden panels |
+
+**Boarders (Forgotten Riders)** launch from the entity’s pods every 12–20 s (scaled by its Heat meter), attach to roofs and use the Train NavMesh Surface. Interior doors can be shut and barred; unbarred doors fall to Riders in 6 s.
+
+**Track Geometry Director.** The Pursuit route is generated as a 40 km station-free corridor with mixed curves and bridges. Curves taken above the safe speed raise a Derailment Risk gauge, so the Engineer balances escape speed against curve limits. One marked Switch Stand per run lets the team divert the entity onto a spur (+400 m, once).
+
+**Outcomes.** Success (survive to dawn, or destroy the Boiler Heart): a guaranteed T4 blueprint fragment, the Pursuer Core (crafting for Emitter Mk III) and the Pursuit Whistle trophy. Setback (rear car shear): the last car and its contents detach and become a Wreckline-style Salvage Site on the route, recoverable later; the Pursuit still resolves at dawn.
+
+## 3. First-Person Locomotion & Tactile Interaction
+
+### 3.1 Controller and Moving-Platform Architecture
+
+- **Controller:** kinematic capsule (r 0.4 m, h 1.8 m, crouch 1.2 m, step offset 0.45 m); eye height 1.62 m; default FOV 80. The player body is not physics-driven: movement is deterministic, which keeps server reconciliation cheap.
+- **Reference Frame Stack:** World → Car → (optional) Handcar. When the player is grounded inside a car’s volume, the controller integrates in car-local space and stores `FrameId, localPos, localVel`; world position is `T_car × localPos` each fixed step. Car transforms come from the spline parameter `s` and are interpolated at render time, giving zero slip and no jitter at 144 Hz.
+- **Inertial pseudo-forces:** in the car frame, `a_pseudo = −(a_long + v²/R)`. If `|a_pseudo|` exceeds 1.2 m/s² and the player is not braced, apply a lateral impulse (≤ 1.5 m/s) and camera lean (≤ 3°). If jerk exceeds 6 m/s³ (emergency brake, coupler slam), trigger **Stagger**: 0.4 s sprint lockout, 0.25 s reduced control, loose objects slide. **Bracing** (hold Interact on a handrail) ignores these forces but occupies the hands.
+- **Comfort options:** horizon-lock camera damping (60%), sway sliders, vignette on stagger.
+
+**Locomotion State Machine.** Walk ⇄ Sprint ⇄ Crouch; any grounded state → Clamber, Ladder or Cling through context volumes; any state → Downed at 0 HP. Frame changes (World ⇄ Car ⇄ Handcar) are orthogonal to movement state.
+
+| State | Speed (m/s) | Stamina | Noise radius | Notes |
+| --- | --- | --- | --- | --- |
+| Walk | 3.0 | Regen 15/s after 1 s | 6 m | Default |
+| Sprint | 5.5 | −10/s | 14 m | Disabled: Heavy carry, deep snow or mud, roof above 35 km/h |
+| Crouch | 1.6 | Regen | 2 m | Height 1.2 m |
+| Cling (roof) | 1.0 | −3/s | 1 m | Cancels wind push |
+| Ladder | 1.4 | 0 | 4 m | Hands only |
+| Clamber | Per table in 3.2 | −5 to −15 | 8 m | Vault, mantle, hang |
+| Swim | 2.0 | −4/s | 5 m | Heavy items drop |
+| Downed | 0.6 crawl | 0 | 3 m | Bleed-out 90 s (45 s in the Pursuit); revive in section 4 |
+
+Uphill speed is multiplied by `1 − 0.012 × slope°` (walkable to 45°). Carry modifier: `carryMult = clamp(1 − max(0, W − 25) / 70, 0.5, 1)` with `W` in kg.
+
+### 3.2 Clambering, Roofs and Moving Carts
+
+**Ledge detection.** Three forward sphere casts (knee 0.4 m, chest 1.1 m, head 1.7 m), a downward ray 0.1 m past the hit to find the top surface, then a clearance-capsule test.
+
+| Ledge height | Action | Time | Stamina | Input |
+| --- | --- | --- | --- | --- |
+| Up to 0.45 m | Step-up | Auto | 0 | — |
+| 0.45–1.1 m | Vault | 0.5 s | 5 | Jump into obstacle |
+| 1.1–2.0 m | Mantle | 1.0 s | 8 | Jump (hold) |
+| 2.0–2.6 m | Hang and pull-up | 1.4 s | 15, then −6/s | Jump at edge, hold Interact |
+| Ladders, grab rails | Climb | 1.4 m/s | 0 | Interact |
+
+**Boarding matrix** (the train never teleports players aboard):
+
+| Train speed | From ground | From handcar | Dismount |
+| --- | --- | --- | --- |
+| 0–5 km/h | Free vault or mantle | — | Free |
+| 5–15 km/h | Run-and-grab the rear platform; Velocity Match Assist (0.6 s lerp) | Step across | Roll, 5–10 dmg |
+| 15–30 km/h | Impossible | Rear-platform grab from an alongside handcar | Hard dismount, 15–25 dmg |
+| Over 30 km/h | Impossible | Cable-link the handcar, then step across | 25–40 dmg plus Stagger |
+
+**Roof traversal.**
+
+- Wind push: `a_wind = 3.0 × (v_kmh/100)² × (1 + gust)` m/s² (halved when crouched, zero when Clinging). Sprint is disabled above 35 km/h and walking above 70 km/h; only crouch or Cling remain.
+- Wet or iced roofs: friction 0.35, so players slide toward the edge and get an Edge Grab prompt (hold Interact, −6 stamina/s).
+- **Clearance Events:** the rail data feed flags low bridges (1.2 m above the roof), tunnels (0.8 m) and signal gantries. Warnings fire at 8 s and 3 s (horn pattern plus a HUD tick). A player who fails to go prone takes a knockdown, 20 dmg and a slide toward the edge.
+
+**Jumping between shifting carts.** Coupler gap is 1.0–2.2 m (1.4 typical). Cars exhibit slack (±0.25 m longitudinal at \~0.5 Hz), lateral sway (±0.15 m) and curve yaw (up to 3°). At takeoff the player leaves the car frame and enters the inertial world frame with the origin car’s velocity, so the physics is correct while the target car moves relative to them. A standing jump reaches 2.4 m; a sprint jump 3.4 m. Assists: 0.12 s coyote time, 0.15 s input buffer, ±0.3 m landing magnetism toward the target roof edge.
+
+- **Gap Fall recovery:** an automatic Coupler Grab prompt (hold Interact within 0.8 s) leaves the player hanging on the coupler (−6 stamina/s, 2.5 s pull-up).
+- **Missed grab:** at ≤ 15 km/h, 25 dmg and Stagger; above that, Drag Trauma and Downed. The player is **Left Behind**: an automatic flare, a Crew Radio alert, and a throttle lock until re-boarding or a vote override (Crew Presence Lock, section 4.1).
+- **Safe route:** the vestibule gangway (diaphragm doors, opened by keypress, barrable) is slower but risk-free.
+
+### 3.3 Terrain Resistance: Snow, Mud and Surfaces
+
+| Surface | Move × | Sprint | Stamina × | AI noise × | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Dirt, grass | 1.00 | Yes | 1.0 | 1.0 | Baseline |
+| Ballast gravel | 0.92 | Yes | 1.1 | 1.6 | Loud; Crawler bait |
+| Metal deck, roof | 1.00 | Yes | 1.0 | 1.8 | Wet friction 0.35 |
+| Shallow mud (under 15 cm) | 0.80 | Yes (×0.85) | 1.3 | 0.4 | Footprints last 90 s |
+| Deep mud (15–40 cm) | 0.55 | No | 1.8 | 0.4 | Boot-stick: 0.3 s hold to pull free |
+| Powder snow (under 30 cm) | 0.80 | Yes | 1.2 | 0.5 | Visible trail |
+| Deep snow (30–60 cm) | 0.50 | No | 1.7 | 0.5 | Camera dips 0.3 × depth |
+| Snow drift (over 60 cm) | 0.35 | No | 2.2 | 0.5 | Waist-deep; cold exposure +50% |
+| Ice | 1.00 | Yes | 1.0 | 0.8 | Friction 0.15, slides |
+| Shallow water (under 0.6 m) | 0.75 | No | 1.4 | 1.2 | Applies Wet status |
+| Deep water | Swim 2.0 | — | 4/s | 1.0 | Heavy items drop |
+
+**Implementation.** Per-chunk depth textures (R16, 0.5 m texels) hold snow, mud and water depth, sampled under each foot. `speedMult = lerp(1.0, 0.35, saturate(depth / 0.8))`; stamina multiplier `1 + 1.2 × depthRatio`. Footprints stamp into a deformation render texture, and AI `TrailMemory` lets Shamblers track fresh prints for up to 60 s. Biome variants: snow muffles Shambler steps (a hearing counter-play), swamp adds Wet and slow, desert dune slopes slide above 30°.
+
+### 3.4 Tactile Interaction Framework
+
+**Targeting.** A 3 m look ray plus a 0.15 m sphere cast; the primary target is the highest score `0.6 × alignment + 0.3 × proximity + 0.1 × context`. A **Hand Proxy** (kinematic body) mediates all physics interactions.
+
+| Verb | Input | Implementation | Feedback | Examples |
+| --- | --- | --- | --- | --- |
+| TAP | E press | Event | Click, animation | Hatch latch, furnace door, switch |
+| HOLD | E hold, 0.4–3 s | Progress ring | Tool audio | Prying a crate, relighting a lamp |
+| DRAG | Hold E + mouse axis | Hinge or slider joint driven by Hand Proxy force | Detent clicks, haptics, live gauge response | Levers |
+| ROTATE | Hold E + circular mouse | Rotational drive, 15° detents | Squeal, resistance | Valves, hatch wheels |
+| GRAB | Hold G | Spring joint, max force from mass | Weight sway | Coal chunks, planks, tools |
+| INSERT | Item + E | Socket snap | Click | Fuse, gas canister into torch |
+| USE | LMB hold with tool | Tool simulation | Tool FX | Welding torch, hammer, rake |
+
+**Physics levers.** A lever is a hinge joint with limits (throttle 0–60°, brake 0–90°), damping and optional spring return. The Hand Proxy applies `F = k × (target − current)` clamped to `maxPull` (default 120 N); heavy levers (turntable crank, emergency brake) need two players. Notches are magnetic torque wells (reverser at −1 / 0 / +1). Output `value ∈ [0,1]` is sampled at 50 Hz by the train subsystem. Assist mode: click to set a notch. Network: the first grabber holds an Authority Lock; others add force but are clamped; the value replicates at 20 Hz while held and the server freezes it on release.
+
+**Locomotive cab controls (E1 baseline).**
+
+| Control | Type | Range | Effect | Failure mode |
+| --- | --- | --- | --- | --- |
+| Regulator | Drag lever | 0–100% | Steam admission, traction | Wheel slip above 85% on wet rail (Sander fixes) |
+| Reverser | Notched drag | −1 to +1, cut-off 15–75% | Direction, efficiency | Reversing at speed damages valve gear |
+| Auto Brake | Drag, 4 notches | Release / Hold / Service / Emergency | Brake-pipe pressure | Leaky hoses lengthen stopping distance |
+| Independent Brake | Drag | 0–100% | Engine-only brake | Overuse causes wheel flats |
+| Blower | Rotate valve | 0–100% | Draft when stopped | Flashback if the firebox door opens without it |
+| Injectors L/R | Rotate + tap | On/off, feed rate | Water into boiler | Lose prime on steam/water mismatch (gurgle cue) |
+| Damper | Drag slider | 0–100% | Air supply | Over-draft wastes fuel; under-draft smokes |
+| Firebox door | TAP | Open/close | Access, heat flash | Backdraft burst: 15 dmg |
+| Whistle cord | Drag pull | 0–1 | Signals, warnings | — |
+| Emitter breaker | Switch | On/off | Perimeter power | Trips above 110% load |
+
+**Firebox and boiler simulation.** The firebox is an 8 × 5 cell grid; each cell stores `fuelMass`, `heat` and `clinker`. Steam generation is `Q = Σ heat × transfer(1 − clinker)`; pressure changes by `dP/dt = (Q − demand − leak) / boilerVolume`. Safe band 8–12 bar, relief valve at 13, rupture risk above 14 bar for 5 s. Water below 25% of the gauge glass for 8 s triggers a **Boiler Failure Cascade** (scalding steam, power loss, engine disabled until 3 T3 parts restore it).
+
+- **Shoveling:** a scoop (LMB at the tender pile, 0.8 s) carries 4 chunks. Aim at the 0.4 × 0.3 m door aperture and release; chunks fly as rigid bodies and land in cells by trajectory. Even coverage (at least 80% of cells fueled) gives +10% efficiency; hot spots above 1.4 × the mean wear the flue sheet.
+- **Single chunks:** GRAB one by hand (two per hand); loose coal rolls with train motion. The tender shows up to 150 chunks as physical instances; the rest is an abstract volume.
+- **Clinker:** rake across the grate (drag gesture) to remove it, then dump the ash pan by lever.
+- **Furnace door ritual:** TAP opens the door (0.6 s animation, heat flash if the player stands in front for over 3 s). Opening it without the Blower on triggers a Backdraft.
+
+| Fuel | Heat units per chunk | Burn time | Ignition | Clinker per chunk |
+| --- | --- | --- | --- | --- |
+| Wood log | 40 | 25 s | Fast | 0.02 |
+| Coal chunk | 100 | 60 s | Medium | 0.08 |
+| Anthracite | 140 | 75 s | Slow | 0.02 |
+| Fuel-oil canister (BP-T and BP-X only) | 260 | 90 s | Instant | 0 |
+
+Baseline burn at cruise (E1, 40 km/h) is about 10 chunks/min, so a 400-chunk tender covers \~27 km. That is why Fuel Caches appear every 12 km and Stations refuel fully.
+
+**Welding torch and hull repair.** Each car’s hull is a grid of 1 × 1 m panels with Integrity 0–100.
+
+| Integrity | State | Effect |
+| --- | --- | --- |
+| 80–100 | Pristine | None |
+| 50–79 | Dented | Cosmetic, slight drag |
+| 20–49 | Cracked | Heat loss, weather exposure |
+| 1–19 | Breached | Water ingress; boarders can enter during the Pursuit |
+| 0 | Destroyed | Open gap |
+
+Repair flow: scrape rust (wire brush, HOLD) → place patch plate (steel plate, snaps to the breach) → tack four corners (TAP × 4) → seam weld (USE along the glowing Weld Path) → optional quench. **Quick-Patch** (plank + nails, 4 s) caps integrity at 40%. The torch burns a gas canister (120 s of flame) or a battery (arc welder, T3). Weld Quality is `100 × (0.5·speed + 0.3·path + 0.2·standoff)`, each term scored 0–1: target travel 4 ± 1.5 cm/s, path error under 1 cm, standoff 5–9 cm. Results: under 40 burns through (−10 integrity, retry), 40–69 restores to 70%, 70–89 restores to 90%, 90 or more restores to 100% plus rust resistance. Goggles are required; without them the screen whites out for 3 s. Sparks ignite spilled oil (Fire System).
+
+**Recurring maintenance** (feeds the Engineer’s task board):
+
+| Task | Interval | Tool | If neglected |
+| --- | --- | --- | --- |
+| Grease axle boxes (2–4 bogies) | 8 min | Oil can | Hot Box after 25 min: speed cap −50% |
+| Boiler blow-down | 20 min | Valve wheel | Scale: efficiency −15% |
+| Check couplings and brake hoses | 15 min | Hammer, wrench | Leaks, slack-action stagger |
+| Replace headlamp bulb | On burnout | Spare bulb | Visibility −60% at night |
+| Hull weld | On damage | Torch | Cracked panels escalate to Breached |
+
+## 4. Advanced Multiplayer Roles & Loop
+
+### 4.1 Netcode Topology & Crew Presence
+
+Modes: **Host/Client** (listen server; the host is authoritative) and **Dedicated** (headless). The simulation is server-authoritative; clients predict their own movement.
+
+| Entity | Rate | Method | Authority |
+| --- | --- | --- | --- |
+| Player (grounded on train) | 30 Hz inputs, 20 Hz snapshots | Replicated in train-local coordinates plus `FrameId`; client prediction and reconciliation | Server |
+| Train | 20 Hz | 1D spline state (`s`, speed, brake pressure) as doubles; cars derive from `s` | Server |
+| Levers and valves | Event, plus 20 Hz while held | Value with Authority Lock | Server; the grabber owns the lock |
+| Coal chunks and loose props | 15 Hz within 6 m of a player; asleep otherwise | Server physics, interpolated on clients | Server |
+| Forgotten and the Pursuit entity | 10 Hz (5 Hz beyond 80 m) | Snapshot interpolation; Pursuit entity as a spline position | Server |
+| Containers, doors, structures | Event-driven | Seed plus delta flags | Server |
+| Atmosphere | On join plus drift correction | `t`, timescale, night count | Server |
+
+Lag compensation for hitscan and melee uses a 200 ms rewind buffer. Streaming uses the union of per-player Interest Spheres (structures 1.5 km, terrain 800 m).
+
+**Crew Presence Lock.** The throttle locks at 0 while any crew member is more than 300 m from the train (flagged Away) or Left Behind, unless the Engineer holds the lever for 3 s with a horn warning (Departure Override). This prevents a Scavenger from being abandoned by accident while keeping the departure a conscious, social decision.
+
+### 4.2 Roles and Division of Labor
+
+Roles are soft classes: anyone can do anything, but specialists are faster, safer and see more. Role Cards are picked at session start and swapped at any Station Roster Terminal.
+
+| Role | Day loop | Night loop | Core stations | Passive perks | Exclusive tools |
+| --- | --- | --- | --- | --- | --- |
+| Engineer | Throttle, stoking, water, grease, welds, train block building | Emitter power, boiler stability, Pursuit speed control | Cab, firebox, tender, workshop | Weld speed +25%, fuel waste −10%, component-wear overlay, highlighted gauge readouts | Torch, torque wrench, Clinker Hook |
+| Scavenger | Handcar and on-foot looting, lockpicking, route recon, fuel gathering | Optional Field Beacon runs for night loot; roof lookout in the Pursuit | Rear platform, map table, handcar | Lock sweet spot +30%, carry +20%, loot glint at 8 m, footsteps −25% noise | Lockpick set, grapple hook, Field Beacons |
+| Defender | Perimeter patrol, escort for structure clearing, hardpoint upkeep | Night Watch, mounted weapons, boarder defense | Roof turrets, gun car | Reload +15%, steady aim on moving platforms, Threat Ping marks mobs for everyone, roof stamina cost −20% | Heavy weapon mounts, flares, melee kit |
+| Medic / Chef | Galley cooking (buffs), medicine crafting, restocking | Revives, triage, barricade support | Galley, infirmary cots | Revive time −40%, meal yield ×1.5; cooks Warm Meal (stamina regen, cold resist) and Hearty Stew (+max HP) | Stove, med kit, bandages, Stretcher |
+
+### 4.3 Dynamic Task Board & Alert Routing
+
+A chalkboard in the cab and a HUD panel list auto-generated tasks, each tagged with a primary and secondary role, so workload stays visible and no role becomes a bottleneck. Base revive: an 8 s hold by any player (Medic 4.8 s).
+
+| Alert | Primary | Secondary | Response window |
+| --- | --- | --- | --- |
+| Pressure or tender low | Engineer | Any | 40 s |
+| Water low | Engineer | Any | 25 s |
+| Hull breach | Engineer | Defender | 90 s (30 s in the Pursuit) |
+| Hot box | Engineer | Scavenger | 5 min |
+| Crew away over 300 m | Scavenger | Defender (escort) | Throttle locked |
+| Injury or Downed | Medic / Chef | Any | Bleed-out 90 s (45 s in the Pursuit) |
+| Hunger or cold | Medic / Chef | Any | 3 min |
+| Boarders | Defender | Scavenger | Immediate |
+
+**Typical loop.** Dawn: the Engineer inspects, the Medic serves buff meals. Day: the Engineer parks at a Stop Marker beside a structure; the Scavenger and Defender clear it while the Medic cooks and the Engineer welds. Dusk: refuel, close hatches, light lamps, run the emitter self-test. Night: everyone stays within 15 m, the Defender takes Watch, the Medic heals. Night 5: battle stations.
+
+### 4.4 Scaling by Party Size
+
+| Players | Role coverage | Aids | Threat × | Loot × |
+| --- | --- | --- | --- | --- |
+| 1 | Auto-Stoker and Brake Assist (T3 upgrades) cover the Engineer | Pursuit entity HP −40% | 0.6 | 0.7 |
+| 2 | Engineer plus a Scavenger/Defender hybrid; Medic duties shared | Auto-Stoker optional | 0.8 | 0.85 |
+| 3 | Engineer, Scavenger, Defender; Chef duties rotate | — | 1.0 | 1.0 |
+| 4 | All four roles | — | 1.2 | 1.15 |
+
+### 4.5 Persistence: Biome Station Saves vs. Mid-Track Disconnects
+
+**Save architecture.** Two layers: a **Station Commit** (the permanent save) and a **Transit Journal** (crash and disconnect protection). Both use versioned schemas, zstd compression and atomic writes (write temp, fsync, rename). Three rolling backups of each Station Commit are kept.
+
+| Data | Station Commit | Transit Journal |
+| --- | --- | --- |
+| Train block layout, car contents | Yes | Yes |
+| Train dynamic state (spline `s`, speed, boiler, fuel) | Reset to Station siding | Yes |
+| Player inventories, stats, roles (Crew Manifest) | Yes | Yes |
+| Containers, structure deltas (looted, cleared, repaired) | Yes | Yes (delta log) |
+| Time of day, night count, Pursuit schedule | Yes | Yes |
+| Live Pursuit state | Not applicable (never at a Station) | Phase checkpoints every 60 s |
+| Mob positions, thrown or dropped transients | Never | Never |
+
+**Biome Station commit flow.** Stations sit at biome boundaries and host the Save Ledger, Fuel Depot, Customization Bay (heavy block placement), Roster Terminal, Storage Lockers and Infirmary. Interacting with the Ledger (any crew member; the others get a confirm prompt) freezes simulation for 1–2 s, serializes the full world delta in a background job, writes atomically, then confirms. The commit is the only permanent rollback point. Docking inside the 150 m sanctuary also pauses Forgotten spawning. Departure through the Biome Gate generates the next biome from the saved seed.
+
+**Mid-track disconnect resolution** (the world keeps running while at least one player remains):
+
+| Player situation at disconnect | Server action | On rejoin |
+| --- | --- | --- |
+| Inside the train or perimeter | Avatar becomes a Dormant Body (invulnerable, non-colliding), then moves to the nearest bunk after 30 s | Wakes in the bunk, inventory intact |
+| Outside, daytime | Invulnerable and frozen for 120 s, then teleported to the nearest bunk if the train is stationary, otherwise marked Stranded | Spawns at the last bunk; items left outside stay as a drop pile |
+| Outside at night, or inside a structure | Safeguard: 120 s invulnerability and a 5 m Field Beacon bubble around the avatar | As above |
+| Downed or during a Pursuit | Bleed-out timer pauses; revive priority flagged to the Medic | Revive state resumes |
+| Mid-clamber or mid-jump | Resolve physics, snap to the last stable surface | As above |
+| Carrying a shared heavy item | Item drops on a stable surface | Item recoverable |
+
+The slot is reserved for 10 minutes (configurable). After that, the player’s Crew Manifest entry (inventory, role, stats, bunk assignment) persists in the world and they can rejoin any time at their bunk. Late joiners spawn in a bunk with 20 s invulnerability, even mid-Pursuit.
+
+**Host or whole-server loss.**
+
+- **Dedicated server, last player leaves:** Hibernation. The Dead-Man’s Brake stops the train within 60 s, world time freezes, and no fuel or emitter ticks accrue. There is no offline progress and no offline attack.
+- **Listen-server host quits or crashes:** the session ends for clients. The host machine writes an Emergency Transit Save (journal plus last snapshot). The next load resumes from it as a one-use Suspend Slot, consumed on load and replaced by the next Station Commit, which prevents save-scumming.
+- **Resume rules:** the train resumes at its last stable position with the Dead-Man’s Brake applied. A Pursuit resumes from its last phase checkpoint with Gap −150 m. Irreversible events (car shear, item loss, death) are appended to a write-ahead journal and fsynced before they resolve, so quitting cannot undo them.
+
+|  | Mid-track disconnect | Biome Station save |
+| --- | --- | --- |
+| Trigger | Network drop, quit, crash | Ledger interaction |
+| Scope | Player avatar plus journal; world continues | Entire world delta, atomic |
+| Rollback point | No (Suspend Slot is consumed on load) | Yes, 3 rolling backups |
+| World state | Continues (1+ players) or hibernates (0) | Station layover; spawns paused; a pending Pursuit is deferred |
+
+## Appendix A. Implementation Order & Risk Register
+
+| Milestone | Scope | Exit criteria |
+| --- | --- | --- |
+| M1 Train Feel | Spline train, car frames, controller on a moving platform, lever physics, firebox, boiler | 4 players stay jitter-free at 90 km/h with 100 ms RTT |
+| M2 World Loop | Route Director, streaming, terrain, one biome, Station save | A 100 km biome streams within a 4 GB memory budget |
+| M3 Structures | Module kit for one structure type, solver, loot budget, containers | 1,000 seeds generate valid layouts with 0 failures |
+| M4 Night | Atmosphere Director, perimeter, 3 core mobs, Night Director | 60 fps with 14 mobs per exposed player |
+| M5 Pursuit | Pursuit Director, mounted weapons, boarders, hull damage | A full Pursuit night is playable at 4 players |
+| M6 Persistence and polish | Disconnect handling, journal, backups | Forced-kill tests recover every time |
+
+| Risk | Mitigation |
+| --- | --- |
+| Moving-platform netcode jitter | Train-local coordinates, spline-scalar replication, frame handoff tests at 200 ms RTT |
+| Float precision over 100 km | Double positions, 2 km origin rebase, local physics origin on the train |
+| Cross-platform generation drift | Integer PCG32, sorted iteration, `LayoutHash` verification |
+| AI cost at night | Caps (14 per player, 36 server-wide), AI LOD, pooled agents |
+| Save corruption | Atomic writes, versioned schema, 3 rolling backups, journal replay |
+| Motion sickness | Frame-stabilized camera options, sway sliders, comfort vignette |
