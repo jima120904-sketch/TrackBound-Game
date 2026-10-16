@@ -1,7 +1,7 @@
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
-
+#**/bin/ (the hash is so that this does not affect this gitgnore, remove the hash if you want to hide bin)
 **/obj/
 [Bb]uild/
 [Bb]uilds/
