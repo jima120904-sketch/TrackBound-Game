@@ -126,7 +126,7 @@ public sealed class TerrainRenderer
                 var angle = Lerp(startAngle, endAngle, a / (float)angleSteps);
                 var x = centerX + MathF.Cos(angle) * radius;
                 var z = centerZ + MathF.Sin(angle) * radius;
-                vertices[r, a] = new Vector3(x, Height(x, z), z);
+                vertices[r, a] = new Vector3(x, Height(x, z) - 3f, z); // sit slightly below the near terrain so the two layers don't z-fight
             }
         }
 
@@ -138,8 +138,9 @@ public sealed class TerrainRenderer
                 var v1 = vertices[r + 1, a];
                 var v2 = vertices[r, a + 1];
                 var v3 = vertices[r + 1, a + 1];
-                AddLitTriangle(target, v0, v1, v2);
-                AddLitTriangle(target, v2, v1, v3);
+                // Counter-clockwise when seen from above (the old order faced down and was backface-culled).
+                AddLitTriangle(target, v0, v2, v1);
+                AddLitTriangle(target, v2, v3, v1);
             }
         }
     }

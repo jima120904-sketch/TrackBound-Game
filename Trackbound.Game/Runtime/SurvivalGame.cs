@@ -39,6 +39,8 @@ public sealed class SurvivalGame
     private float _tracerTimer;
     private string _message = "The cab is yours. Find supplies, craft gear, keep the train moving.";
     private bool _craftingOpen;
+    private bool _showDebug = true;
+    private Vector2 _debugRawMouse;
     private bool _inventoryOpen;
     private bool _isOnTrain = true;
     private int _recipeIndex;
@@ -70,6 +72,7 @@ public sealed class SurvivalGame
         };
 
         Raylib.DisableCursor();
+        Raylib.GetMouseDelta(); // flush the large first-frame delta caused by capturing the cursor
         while (!Raylib.WindowShouldClose())
         {
             var delta = Math.Clamp(Raylib.GetFrameTime(), 0, 0.05f);
@@ -165,13 +168,26 @@ public sealed class SurvivalGame
     private void UpdatePlayer(float delta)
     {
         var mouse = Raylib.GetMouseDelta();
-        _yaw += mouse.X * 0.0022f;
+        _debugRawMouse = mouse;
+        if (Raylib.IsKeyPressed(KeyboardKey.F3))
+        {
+            _showDebug = !_showDebug;
+        }
+        if (!Raylib.IsWindowFocused())
+        {
+            mouse = Vector2.Zero; // ignore stray deltas while the window is not active
+        }
+        // Guard against single-frame spikes (alt-tab, focus changes, hitches).
+        mouse = new Vector2(Math.Clamp(mouse.X, -120f, 120f), Math.Clamp(mouse.Y, -120f, 120f));
+        // Raylib is right-handed: with forward = +Z, screen-right is -X, so moving the mouse right must DEcrease yaw.
+        _yaw -= mouse.X * 0.0022f;
+        _yaw = MathF.IEEERemainder(_yaw, MathF.Tau);
         _pitch = Math.Clamp(_pitch - mouse.Y * 0.0022f, -1.36f, 1.36f);
         var cosPitch = MathF.Cos(_pitch);
         _forward = Vector3.Normalize(new Vector3(MathF.Sin(_yaw) * cosPitch, MathF.Sin(_pitch), MathF.Cos(_yaw) * cosPitch));
 
         var forwardFlat = Vector3.Normalize(new Vector3(_forward.X, 0, _forward.Z));
-        var right = new Vector3(forwardFlat.Z, 0, -forwardFlat.X);
+        var right = new Vector3(-forwardFlat.Z, 0, forwardFlat.X); // forward x up
         var movement = Vector3.Zero;
         if (Raylib.IsKeyDown(KeyboardKey.W)) movement += forwardFlat;
         if (Raylib.IsKeyDown(KeyboardKey.S)) movement -= forwardFlat;
@@ -484,6 +500,8 @@ public sealed class SurvivalGame
         var skyBottom = ColorLerp(new Color(67, 78, 98, 255), new Color(206, 186, 151, 255), daylight);
 
         Raylib.BeginDrawing();
+        // Raylib's default clip planes (0.01 .. 1000) wreck depth precision and cut off the 11 km world.
+        Rlgl.SetClipPlanes(0.2, 13000.0);
         Raylib.DrawRectangleGradientV(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), skyTop, skyBottom);
         Raylib.BeginMode3D(_camera);
         _terrain.Draw(_playerPosition, _timeOfDay);
@@ -494,6 +512,7 @@ public sealed class SurvivalGame
         DrawSun(daylight);
         Raylib.EndMode3D();
         DrawHud();
+        if (_showDebug) DrawDebug();
         Raylib.EndDrawing();
     }
 
@@ -525,6 +544,16 @@ public sealed class SurvivalGame
             Raylib.DrawSphere(new Vector3(body.X - 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(218, 123, 71, 255));
             Raylib.DrawSphere(new Vector3(body.X + 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(218, 123, 71, 255));
         }
+    }
+
+    private void DrawDebug()
+    {
+        var y = Raylib.GetScreenHeight() - 150;
+        Raylib.DrawRectangle(18, y - 6, 560, 112, new Color(0, 0, 0, 170));
+        Raylib.DrawText($"DEBUG (F3 hides)  FPS {Raylib.GetFPS()}  focused {Raylib.IsWindowFocused()}", 28, y, 16, Color.Yellow);
+        Raylib.DrawText($"raw mouse delta  X {_debugRawMouse.X:0.0}  Y {_debugRawMouse.Y:0.0}", 28, y + 24, 16, Color.Yellow);
+        Raylib.DrawText($"yaw {_yaw:0.00}  pitch {_pitch:0.00}", 28, y + 48, 16, Color.Yellow);
+        Raylib.DrawText($"pos {_playerPosition.X:0.0} {_playerPosition.Y:0.0} {_playerPosition.Z:0.0}", 28, y + 72, 16, Color.Yellow);
     }
 
     private void DrawHud()
