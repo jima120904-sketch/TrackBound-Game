@@ -40,6 +40,8 @@ public sealed class SurvivalGame
     private string _message = "The cab is yours. Find supplies, craft gear, keep the train moving.";
     private bool _craftingOpen;
     private bool _showDebug = true;
+    private int _mouseMode; // 0 = hidden cursor re-centred every frame (default), 1 = raylib captured/raw mode
+    private bool _mouseReset = true;
     private Vector2 _debugRawMouse;
     private bool _inventoryOpen;
     private bool _isOnTrain = true;
@@ -71,8 +73,7 @@ public sealed class SurvivalGame
             Projection = CameraProjection.Perspective
         };
 
-        Raylib.DisableCursor();
-        Raylib.GetMouseDelta(); // flush the large first-frame delta caused by capturing the cursor
+        ApplyMouseMode();
         while (!Raylib.WindowShouldClose())
         {
             var delta = Math.Clamp(Raylib.GetFrameTime(), 0, 0.05f);
@@ -80,6 +81,53 @@ public sealed class SurvivalGame
             Draw();
         }
         Raylib.EnableCursor();
+        Raylib.ShowCursor();
+    }
+
+    private void ApplyMouseMode()
+    {
+        if (_mouseMode == 1)
+        {
+            Raylib.DisableCursor();
+        }
+        else
+        {
+            Raylib.EnableCursor();
+            Raylib.HideCursor();
+        }
+        _mouseReset = true;
+        Raylib.GetMouseDelta();
+    }
+
+    private Vector2 ReadMouseLook()
+    {
+        if (!Raylib.IsWindowFocused())
+        {
+            _mouseReset = true;
+            return Vector2.Zero;
+        }
+
+        if (_mouseMode == 1)
+        {
+            var raw = Raylib.GetMouseDelta();
+            if (_mouseReset)
+            {
+                _mouseReset = false;
+                return Vector2.Zero;
+            }
+            return raw;
+        }
+
+        // Default: read how far the cursor moved from the window centre, then put it back.
+        var center = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        var position = Raylib.GetMousePosition();
+        Raylib.SetMousePosition((int)center.X, (int)center.Y);
+        if (_mouseReset)
+        {
+            _mouseReset = false;
+            return Vector2.Zero;
+        }
+        return position - center;
     }
 
     private void SeedInventory()
@@ -167,22 +215,34 @@ public sealed class SurvivalGame
 
     private void UpdatePlayer(float delta)
     {
-        var mouse = Raylib.GetMouseDelta();
-        _debugRawMouse = mouse;
         if (Raylib.IsKeyPressed(KeyboardKey.F3))
         {
             _showDebug = !_showDebug;
         }
-        if (!Raylib.IsWindowFocused())
+        if (Raylib.IsKeyPressed(KeyboardKey.F4))
         {
-            mouse = Vector2.Zero; // ignore stray deltas while the window is not active
+            _mouseMode = 1 - _mouseMode;
+            ApplyMouseMode();
         }
-        // Guard against single-frame spikes (alt-tab, focus changes, hitches).
+
+        var mouse = ReadMouseLook();
+        _debugRawMouse = mouse;
+        // Ignore absurd single-frame jumps (focus changes, broken pointer devices, hitches).
+        if (MathF.Abs(mouse.X) > 400f || MathF.Abs(mouse.Y) > 400f)
+        {
+            mouse = Vector2.Zero;
+        }
         mouse = new Vector2(Math.Clamp(mouse.X, -120f, 120f), Math.Clamp(mouse.Y, -120f, 120f));
         // Raylib is right-handed: with forward = +Z, screen-right is -X, so moving the mouse right must DEcrease yaw.
         _yaw -= mouse.X * 0.0022f;
-        _yaw = MathF.IEEERemainder(_yaw, MathF.Tau);
         _pitch = Math.Clamp(_pitch - mouse.Y * 0.0022f, -1.36f, 1.36f);
+
+        // Keyboard look backup: Left/Right arrows turn, PageUp/PageDown look up/down.
+        var keyYaw = (Raylib.IsKeyDown(KeyboardKey.Left) ? 1f : 0f) - (Raylib.IsKeyDown(KeyboardKey.Right) ? 1f : 0f);
+        var keyPitch = (Raylib.IsKeyDown(KeyboardKey.PageUp) ? 1f : 0f) - (Raylib.IsKeyDown(KeyboardKey.PageDown) ? 1f : 0f);
+        _yaw += keyYaw * 1.8f * delta;
+        _pitch = Math.Clamp(_pitch + keyPitch * 1.2f * delta, -1.36f, 1.36f);
+        _yaw = MathF.IEEERemainder(_yaw, MathF.Tau);
         var cosPitch = MathF.Cos(_pitch);
         _forward = Vector3.Normalize(new Vector3(MathF.Sin(_yaw) * cosPitch, MathF.Sin(_pitch), MathF.Cos(_yaw) * cosPitch));
 
@@ -548,9 +608,10 @@ public sealed class SurvivalGame
 
     private void DrawDebug()
     {
-        var y = Raylib.GetScreenHeight() - 150;
-        Raylib.DrawRectangle(18, y - 6, 560, 112, new Color(0, 0, 0, 170));
+        var y = Raylib.GetScreenHeight() - 175;
+        Raylib.DrawRectangle(18, y - 6, 620, 138, new Color(0, 0, 0, 170));
         Raylib.DrawText($"DEBUG (F3 hides)  FPS {Raylib.GetFPS()}  focused {Raylib.IsWindowFocused()}", 28, y, 16, Color.Yellow);
+        Raylib.DrawText($"mouse mode {(_mouseMode == 0 ? "recenter" : "raw")} (F4 switches)  turn: Left/Right arrows, look: PgUp/PgDn", 28, y + 96, 14, Color.Yellow);
         Raylib.DrawText($"raw mouse delta  X {_debugRawMouse.X:0.0}  Y {_debugRawMouse.Y:0.0}", 28, y + 24, 16, Color.Yellow);
         Raylib.DrawText($"yaw {_yaw:0.00}  pitch {_pitch:0.00}", 28, y + 48, 16, Color.Yellow);
         Raylib.DrawText($"pos {_playerPosition.X:0.0} {_playerPosition.Y:0.0} {_playerPosition.Z:0.0}", 28, y + 72, 16, Color.Yellow);
