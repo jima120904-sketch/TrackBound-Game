@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Trackbound.Game/Trackbound.Game.csproj" />
+  <Project Path="Tests/Core/Trackbound.Core.Tests.csproj" />
+</Solution>

@@ -1,6 +1,8 @@
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
+**/bin/
+**/obj/
 [Bb]uild/
 [Bb]uilds/
 [Ll]ogs/
@@ -21,6 +23,5 @@
 *.pidb.meta
 *.pdb.meta
 *.mdb.meta
-!Tests/Core/Trackbound.Core.Tests.csproj
+!Trackbound.Game/Trackbound.Game.csproj
 /Tests/Core/bin/
-/Tests/Core/obj/

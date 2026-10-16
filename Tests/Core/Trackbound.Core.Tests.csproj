@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Assets/Scripts/Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../Trackbound.Game/Gameplay/**/*.cs" Link="Gameplay/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

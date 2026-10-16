@@ -1,4 +1,5 @@
 using Trackbound.Core;
+using Trackbound.Gameplay;
 
 static void Require(bool condition, string message)
 {
@@ -46,4 +47,21 @@ emptyTrain.SetControls(1, 0);
 emptyTrain.Tick(1);
 Require(emptyTrain.SpeedMetersPerSecond == 0, "An empty firebox must not produce traction.");
 
-Console.WriteLine("Trackbound core checks passed: deterministic terrain, fuel use, traction, and braking.");
+var inventory = new Inventory();
+inventory.Add(ItemId.Wood, 1);
+var planksRecipe = CraftingCatalog.Recipes.Single(recipe => recipe.Output == ItemId.Planks);
+Require(CraftingService.TryCraft(inventory, planksRecipe, CraftingStation.Hand), "Hand crafting should produce planks from wood.");
+Require(inventory.Count(ItemId.Planks) == 4 && inventory.Count(ItemId.Wood) == 0, "Crafting should atomically consume and create items.");
+
+var rifleRecipe = CraftingCatalog.Recipes.Single(recipe => recipe.Output == ItemId.Rifle);
+Require(!CraftingService.TryCraft(inventory, rifleRecipe, CraftingStation.Workbench), "A rifle must not craft without its ingredients.");
+
+inventory.Add(ItemId.ScrapMetal, 14);
+inventory.Add(ItemId.IronIngot, 6);
+inventory.Add(ItemId.Wood, 3);
+inventory.Add(ItemId.MechanicalParts, 2);
+Require(CraftingService.TryCraft(inventory, rifleRecipe, CraftingStation.Workbench), "A rifle should craft when all workbench ingredients are present.");
+Require(inventory.Count(ItemId.Rifle) == 1 && inventory.Count(ItemId.ScrapMetal) == 0, "Gun crafting should consume its recipe ingredients.");
+Require(!CraftingService.CanCraft(inventory, rifleRecipe, CraftingStation.Furnace), "A furnace must not substitute for a workbench.");
+
+Console.WriteLine("Trackbound core checks passed: deterministic terrain, mountain relief, train dynamics, and atomic crafting.");
