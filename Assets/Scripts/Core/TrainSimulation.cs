@@ -33,6 +33,14 @@ namespace Trackbound.Core
             }
         }
 
+        public void RestoreState(double speed, double fuel, double throttle, double brake)
+        {
+            SpeedMetersPerSecond = Math.Clamp(speed, 0, MaximumSpeed);
+            FuelChunks = Math.Max(0, fuel);
+            Throttle = Clamp01(throttle);
+            Brake = Clamp01(brake);
+        }
+
         public void Tick(double deltaSeconds, double trackGrade = 0)
         {
             if (deltaSeconds <= 0)

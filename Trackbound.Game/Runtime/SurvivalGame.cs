@@ -11,13 +11,14 @@ public sealed class SurvivalGame
     private const float FullCycleSeconds = 48 * 60f;
 
     private readonly Inventory _inventory = new();
-    private readonly TerrainRenderer _terrain = new(731);
+    private TerrainRenderer _terrain = new(731);
     private readonly TrainRenderer _trainRenderer = new();
-    private readonly TrainSimulation _train = new(75);
+    private TrainSimulation _train = new(75);
     private readonly List<ResourceNode> _resources = new();
     private readonly List<Enemy> _enemies = new();
     private readonly HashSet<long> _collectedNodes = new();
-    private readonly Random _random = new(191);
+    private Random _random = new(191);
+    private readonly WorldMenu _menu = new();
     private Camera3D _camera;
     private Vector3 _playerPosition = new(0, 3.45f, -5.1f);
     private Vector3 _forward = new(0, 0, 1);
@@ -37,11 +38,14 @@ public sealed class SurvivalGame
     private float _enemySpawnTimer = 18;
     private float _messageTimer;
     private float _tracerTimer;
+    private float _autosaveTimer = 60f;
     private string _message = "The cab is yours. Find supplies, craft gear, keep the train moving.";
     private bool _craftingOpen;
     private bool _showDebug = true;
-    private int _mouseMode; // 0 = hidden cursor re-centred every frame (default), 1 = raylib captured/raw mode
+    private int _mouseMode = 1; // 1 = raylib captured/raw mode (default), 0 = relative delta tracking
     private bool _mouseReset = true;
+    private bool _wasFocused = true;
+    private Vector2 _lastMousePosition;
     private Vector2 _debugRawMouse;
     private bool _inventoryOpen;
     private bool _isOnTrain = true;
@@ -63,7 +67,6 @@ public sealed class SurvivalGame
 
     public void Run()
     {
-        SeedInventory();
         _camera = new Camera3D
         {
             Position = _playerPosition,
@@ -73,15 +76,136 @@ public sealed class SurvivalGame
             Projection = CameraProjection.Perspective
         };
 
-        ApplyMouseMode();
+        // Subscribe to world load events from the menu system
+        _menu.OnWorldLoaded += OnWorldLoaded;
+
+        // Show cursor for menu
+        Raylib.EnableCursor();
+        Raylib.ShowCursor();
+
         while (!Raylib.WindowShouldClose())
         {
             var delta = Math.Clamp(Raylib.GetFrameTime(), 0, 0.05f);
-            Update(delta);
-            Draw();
+
+            if (_menu.State != MenuState.Playing)
+            {
+                // In a menu screen
+                _menu.Update(delta);
+                Raylib.BeginDrawing();
+                Raylib.ClearBackground(new Color(12, 18, 28, 255));
+                _menu.Draw();
+                Raylib.EndDrawing();
+            }
+            else
+            {
+                // Active gameplay
+                Update(delta);
+                Draw();
+            }
         }
+
+        // Save on exit if a world is active
+        SaveCurrentWorldState();
         Raylib.EnableCursor();
         Raylib.ShowCursor();
+    }
+
+    private void OnWorldLoaded(WorldSaveData world)
+    {
+        // Apply world seed to terrain and random
+        _terrain.SetWorld(world.Seed, world.RenderDistanceKm);
+        _random = new Random(world.Seed);
+
+        // Restore train state
+        _trainZ = world.TrainZ;
+        _throttle = world.Throttle;
+        _brake = world.Brake;
+        _train = new TrainSimulation(world.FuelChunks);
+        _train.RestoreState(world.TrainSpeed, world.FuelChunks, world.Throttle, world.Brake);
+
+        // Restore player state
+        _playerPosition = world.PlayerPosition;
+        _yaw = world.Yaw;
+        _pitch = world.Pitch;
+        _isOnTrain = world.IsOnTrain;
+        _health = world.Health;
+        _hunger = world.Hunger;
+        _stamina = world.Stamina;
+
+        // Restore clock
+        _timeOfDay = world.TimeOfDay;
+        _elapsed = world.Elapsed;
+
+        // Restore inventory
+        _inventory.Clear();
+        foreach (var (item, count) in world.InventoryItems)
+        {
+            _inventory.Add(item, count);
+        }
+
+        // Restore collected nodes
+        _collectedNodes.Clear();
+        foreach (var id in world.CollectedNodeIds)
+        {
+            _collectedNodes.Add(id);
+        }
+
+        // Force resource re-generation around player
+        _resourceCenterX = int.MinValue;
+        _resourceCenterZ = int.MinValue;
+        _resources.Clear();
+        _enemies.Clear();
+
+        // Recalculate forward vector from yaw/pitch
+        var cosPitch = MathF.Cos(_pitch);
+        _forward = Vector3.Normalize(new Vector3(MathF.Sin(_yaw) * cosPitch, MathF.Sin(_pitch), MathF.Cos(_yaw) * cosPitch));
+
+        // Update camera
+        _camera.Position = _playerPosition;
+        _camera.Target = _playerPosition + _forward;
+
+        // Reset autosave timer
+        _autosaveTimer = 60f;
+
+        // Enter gameplay mode with captured mouse
+        ApplyMouseMode();
+        ShowMessage($"Welcome to {world.WorldName}. Seed: {world.Seed}");
+    }
+
+    private void SaveCurrentWorldState()
+    {
+        var world = _menu.ActiveWorld;
+        if (world == null) return;
+
+        world.TrainZ = _trainZ;
+        world.TrainSpeed = _train.SpeedMetersPerSecond;
+        world.FuelChunks = _train.FuelChunks;
+        world.Throttle = _throttle;
+        world.Brake = _brake;
+
+        world.PlayerPosition = _playerPosition;
+        world.Yaw = _yaw;
+        world.Pitch = _pitch;
+        world.IsOnTrain = _isOnTrain;
+        world.Health = _health;
+        world.Hunger = _hunger;
+        world.Stamina = _stamina;
+
+        world.TimeOfDay = _timeOfDay;
+        world.Elapsed = _elapsed;
+        world.RenderDistanceKm = _menu.RenderDistanceKm;
+
+        // Save inventory
+        world.InventoryItems.Clear();
+        foreach (var (item, count) in _inventory.Items)
+        {
+            world.InventoryItems[item] = count;
+        }
+
+        // Save collected nodes
+        world.CollectedNodeIds = new List<long>(_collectedNodes);
+
+        WorldSaveManager.SaveWorld(world);
     }
 
     private void ApplyMouseMode()
@@ -94,6 +218,7 @@ public sealed class SurvivalGame
         {
             Raylib.EnableCursor();
             Raylib.HideCursor();
+            _lastMousePosition = Raylib.GetMousePosition();
         }
         _mouseReset = true;
         Raylib.GetMouseDelta();
@@ -101,7 +226,7 @@ public sealed class SurvivalGame
 
     private Vector2 ReadMouseLook()
     {
-        if (!Raylib.IsWindowFocused())
+        if (!Raylib.IsWindowFocused() || _craftingOpen || _inventoryOpen)
         {
             _mouseReset = true;
             return Vector2.Zero;
@@ -118,16 +243,28 @@ public sealed class SurvivalGame
             return raw;
         }
 
-        // Default: read how far the cursor moved from the window centre, then put it back.
-        var center = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        // Mode 0: relative tracking using delta from previous frame (never drifts)
         var position = Raylib.GetMousePosition();
-        Raylib.SetMousePosition((int)center.X, (int)center.Y);
         if (_mouseReset)
         {
             _mouseReset = false;
+            _lastMousePosition = position;
             return Vector2.Zero;
         }
-        return position - center;
+
+        var delta = position - _lastMousePosition;
+        _lastMousePosition = position;
+
+        var screenW = Raylib.GetScreenWidth();
+        var screenH = Raylib.GetScreenHeight();
+        if (position.X < 50 || position.X > screenW - 50 || position.Y < 50 || position.Y > screenH - 50)
+        {
+            var center = new Vector2(screenW / 2f, screenH / 2f);
+            Raylib.SetMousePosition((int)center.X, (int)center.Y);
+            _lastMousePosition = center;
+        }
+
+        return delta;
     }
 
     private void SeedInventory()
@@ -163,6 +300,44 @@ public sealed class SurvivalGame
         if (_health <= 0)
         {
             Respawn();
+        }
+
+        // Autosave every 60 seconds
+        _autosaveTimer -= delta;
+        if (_autosaveTimer <= 0)
+        {
+            _autosaveTimer = 60f;
+            SaveCurrentWorldState();
+        }
+
+        // Handle Escape key: open pause menu instead of quitting
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            if (_craftingOpen || _inventoryOpen)
+            {
+                // Close any open panel first
+                _craftingOpen = false;
+                _inventoryOpen = false;
+                OnMenuToggled();
+            }
+            else
+            {
+                // Save and open pause menu
+                SaveCurrentWorldState();
+                _menu.OpenPauseMenu();
+
+                // If menu returned to title, don't continue updating gameplay
+                return;
+            }
+        }
+
+        // If pause menu is now active (because OpenPauseMenu was called), stop gameplay updates
+        if (_menu.State != MenuState.Playing) return;
+
+        // Check if render distance changed from pause menu
+        if (_terrain.RenderDistanceKm != _menu.RenderDistanceKm)
+        {
+            _terrain.SetRenderDistance(_menu.RenderDistanceKm);
         }
 
         UpdateTrain(delta);
@@ -223,6 +398,22 @@ public sealed class SurvivalGame
         {
             _mouseMode = 1 - _mouseMode;
             ApplyMouseMode();
+        }
+
+        var isFocused = Raylib.IsWindowFocused();
+        if (isFocused != _wasFocused)
+        {
+            _wasFocused = isFocused;
+            if (isFocused && !_craftingOpen && !_inventoryOpen)
+            {
+                ApplyMouseMode();
+            }
+            else
+            {
+                Raylib.EnableCursor();
+                Raylib.ShowCursor();
+            }
+            _mouseReset = true;
         }
 
         var mouse = ReadMouseLook();
@@ -287,13 +478,14 @@ public sealed class SurvivalGame
         _resourceCenterZ = cellZ;
         _resources.Clear();
 
+        var seed = _menu.ActiveWorld?.Seed ?? 731;
         for (var z = cellZ - 4; z <= cellZ + 4; z++)
         {
             for (var x = cellX - 4; x <= cellX + 4; x++)
             {
                 var id = ((long)x << 32) ^ (uint)z;
                 if (_collectedNodes.Contains(id)) continue;
-                var hash = unchecked((uint)(x * 374761393 ^ z * 668265263 ^ 731 * 1442695041));
+                var hash = unchecked((uint)(x * 374761393 ^ z * 668265263 ^ seed * 1442695041));
                 hash = (hash ^ (hash >> 13)) * 1274126177;
                 var random = new Random((int)hash);
                 if (random.NextDouble() > 0.44) continue;
@@ -386,11 +578,13 @@ public sealed class SurvivalGame
         {
             _craftingOpen = !_craftingOpen;
             _inventoryOpen = false;
+            OnMenuToggled();
         }
         if (Raylib.IsKeyPressed(KeyboardKey.I))
         {
             _inventoryOpen = !_inventoryOpen;
             _craftingOpen = false;
+            OnMenuToggled();
         }
         if (_craftingOpen)
         {
@@ -407,6 +601,20 @@ public sealed class SurvivalGame
         {
             if (Raylib.IsKeyPressed((KeyboardKey)((int)KeyboardKey.One + slot))) _selectedSlot = slot;
         }
+    }
+
+    private void OnMenuToggled()
+    {
+        if (_craftingOpen || _inventoryOpen)
+        {
+            Raylib.EnableCursor();
+            Raylib.ShowCursor();
+        }
+        else
+        {
+            ApplyMouseMode();
+        }
+        _mouseReset = true;
     }
 
     private void Interact()
@@ -555,66 +763,89 @@ public sealed class SurvivalGame
 
     private void Draw()
     {
-        var daylight = Daylight();
-        var skyTop = ColorLerp(new Color(18, 27, 43, 255), new Color(95, 136, 164, 255), daylight);
-        var skyBottom = ColorLerp(new Color(67, 78, 98, 255), new Color(206, 186, 151, 255), daylight);
+        var lighting = LightingEngine.Compute(
+            _timeOfDay,
+            FullCycleSeconds,
+            DaySeconds,
+            _playerPosition,
+            _trainZ,
+            _train.FuelChunks,
+            _elapsed);
 
         Raylib.BeginDrawing();
+        Raylib.ClearBackground(lighting.SkyHorizon);
         // Raylib's default clip planes (0.01 .. 1000) wreck depth precision and cut off the 11 km world.
-        Rlgl.SetClipPlanes(0.2, 13000.0);
-        Raylib.DrawRectangleGradientV(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), skyTop, skyBottom);
+        Rlgl.SetClipPlanes(0.2, 220000.0);
+        LightingEngine.DrawSky(lighting);
+
         Raylib.BeginMode3D(_camera);
-        _terrain.Draw(_playerPosition, _timeOfDay);
-        _trainRenderer.Draw(_trainZ, (float)_train.SpeedMetersPerSecond, daylight < 0.27f);
-        DrawResources();
-        DrawEnemies();
+        LightingEngine.DrawCelestialAndAtmosphere(lighting, _playerPosition);
+        _terrain.Draw(_playerPosition, lighting);
+        _trainRenderer.Draw(_trainZ, (float)_train.SpeedMetersPerSecond, lighting);
+        DrawResources(lighting);
+        DrawEnemies(lighting);
         if (_tracerTimer > 0) Raylib.DrawLine3D(_tracerStart, _tracerEnd, new Color(255, 203, 120, 255));
-        DrawSun(daylight);
         Raylib.EndMode3D();
+
         DrawHud();
-        if (_showDebug) DrawDebug();
+        if (_showDebug) DrawDebug(lighting);
+
+        // Draw pause menu overlay on top of the 3D scene
+        if (_menu.State == MenuState.PauseMenu)
+        {
+            _menu.Update(Raylib.GetFrameTime());
+            _menu.Draw();
+
+            // If pause menu transitioned back to playing, re-capture the mouse
+            if (_menu.State == MenuState.Playing)
+            {
+                ApplyMouseMode();
+            }
+        }
+
         Raylib.EndDrawing();
     }
 
-    private void DrawSun(float daylight)
-    {
-        var sunAngle = (float)(_timeOfDay / FullCycleSeconds * Math.Tau);
-        var sunPosition = new Vector3(MathF.Cos(sunAngle) * 1200, 380 + MathF.Sin(sunAngle) * 480, _playerPosition.Z + 3200);
-        var sunColor = ColorLerp(new Color(243, 183, 124, 255), new Color(255, 238, 195, 255), daylight);
-        Raylib.DrawSphere(sunPosition, 95, sunColor);
-    }
-
-    private void DrawResources()
+    private void DrawResources(LightingContext lighting)
     {
         foreach (var node in _resources)
         {
             var position = node.Position + Vector3.UnitY * 0.72f;
-            Raylib.DrawCube(position, 0.9f, 0.9f, 0.9f, node.Color);
-            Raylib.DrawCubeWires(position, 0.92f, 0.92f, 0.92f, new Color(209, 207, 184, 255));
+            var litColor = LightingEngine.ShadeSurface(node.Color, Vector3.UnitY, position, lighting, 0.5f, 0.35f);
+            Raylib.DrawCube(position, 0.9f, 0.9f, 0.9f, litColor);
+            Raylib.DrawCubeWires(position, 0.92f, 0.92f, 0.92f, new Color(209, 207, 184, 180));
         }
     }
 
-    private void DrawEnemies()
+    private void DrawEnemies(LightingContext lighting)
     {
         foreach (var enemy in _enemies)
         {
             var body = new Vector3(enemy.Position.X, enemy.Position.Y + 1.0f, enemy.Position.Z);
-            Raylib.DrawCube(body, 0.82f, 1.35f, 0.55f, new Color(72, 77, 70, 255));
-            Raylib.DrawSphere(new Vector3(body.X, body.Y + 0.95f, body.Z), 0.34f, new Color(99, 105, 91, 255));
-            Raylib.DrawSphere(new Vector3(body.X - 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(218, 123, 71, 255));
-            Raylib.DrawSphere(new Vector3(body.X + 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(218, 123, 71, 255));
+            var bodyColor = LightingEngine.ShadeSurface(new Color(68, 74, 66, 255), Vector3.UnitY, body, lighting, 0.8f, 0.1f);
+            var headColor = LightingEngine.ShadeSurface(new Color(92, 100, 86, 255), Vector3.UnitY, body, lighting, 0.8f, 0.1f);
+            Raylib.DrawCube(body, 0.82f, 1.35f, 0.55f, bodyColor);
+            Raylib.DrawSphere(new Vector3(body.X, body.Y + 0.95f, body.Z), 0.34f, headColor);
+
+            // Glowing emissive orange eyes
+            Raylib.DrawSphere(new Vector3(body.X - 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(255, 105, 30, 255));
+            Raylib.DrawSphere(new Vector3(body.X + 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(255, 105, 30, 255));
         }
     }
 
-    private void DrawDebug()
+    private void DrawDebug(LightingContext lighting)
     {
-        var y = Raylib.GetScreenHeight() - 175;
-        Raylib.DrawRectangle(18, y - 6, 620, 138, new Color(0, 0, 0, 170));
+        var y = Raylib.GetScreenHeight() - 195;
+        Raylib.DrawRectangle(18, y - 6, 620, 158, new Color(0, 0, 0, 170));
         Raylib.DrawText($"DEBUG (F3 hides)  FPS {Raylib.GetFPS()}  focused {Raylib.IsWindowFocused()}", 28, y, 16, Color.Yellow);
-        Raylib.DrawText($"mouse mode {(_mouseMode == 0 ? "recenter" : "raw")} (F4 switches)  turn: Left/Right arrows, look: PgUp/PgDn", 28, y + 96, 14, Color.Yellow);
-        Raylib.DrawText($"raw mouse delta  X {_debugRawMouse.X:0.0}  Y {_debugRawMouse.Y:0.0}", 28, y + 24, 16, Color.Yellow);
+        Raylib.DrawText($"mouse mode {(_mouseMode == 1 ? "captured (raw)" : "relative (free)")} (F4 switches)  turn: Left/Right arrows, look: PgUp/PgDn", 28, y + 96, 14, Color.Yellow);
+        Raylib.DrawText($"lighting {lighting.HourOfDay:00.0}h  daylight {lighting.Daylight * 100:0}%  golden {lighting.GoldenHour * 100:0}%  night {lighting.Night * 100:0}%", 28, y + 24, 15, Color.Yellow);
         Raylib.DrawText($"yaw {_yaw:0.00}  pitch {_pitch:0.00}", 28, y + 48, 16, Color.Yellow);
         Raylib.DrawText($"pos {_playerPosition.X:0.0} {_playerPosition.Y:0.0} {_playerPosition.Z:0.0}", 28, y + 72, 16, Color.Yellow);
+        var worldInfo = _menu.ActiveWorld != null
+            ? $"world \"{_menu.ActiveWorld.WorldName}\"  seed {_menu.ActiveWorld.Seed}  render {_menu.RenderDistanceKm}km  horizon 200km"
+            : "world: default";
+        Raylib.DrawText(worldInfo, 28, y + 118, 14, Color.Yellow);
     }
 
     private void DrawHud()
@@ -754,11 +985,13 @@ public sealed class SurvivalGame
         return 0.025f + 0.035f * (1 + MathF.Sin(phase * MathF.Tau));
     }
 
+    /// <summary>
+    /// Returns terrain height using the TerrainRenderer's civil-engineered railway grade
+    /// with natural mountains in all directions (no artificial valley walls).
+    /// </summary>
     private float TerrainHeight(float x, float z)
     {
-        var height = (float)ProceduralTerrain.Height(x, z, 731);
-        var blend = SmoothStep(18, 420, MathF.Abs(x));
-        return height * blend;
+        return _terrain.Height(x, z);
     }
 
     private static Color ResourceColor(ItemId item) => item switch

@@ -1,4 +1,6 @@
 using Raylib_cs;
+using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Trackbound.Core;
 
@@ -9,23 +11,62 @@ public sealed class TerrainRenderer
     private const int NearTileSize = 128;
     private const int NearCells = 8;
     private const int NearRadius = 8;
-    private const int FarSectors = 40;
+    private const int FarSectors = 48;
+
     private readonly List<Triangle> _near = new();
+    private readonly List<Triangle> _mid = new();
     private readonly List<Triangle> _far = new();
+    private readonly List<Triangle> _horizon200km = new();
+
     private readonly List<Tree> _trees = new();
-    private readonly int _seed;
+    private readonly List<GrassTuft> _grass = new();
+    private readonly List<Boulder> _boulders = new();
+
+    private int _seed;
+    private int _renderDistanceKm = 50;
     private int _centerTileX = int.MinValue;
     private int _centerTileZ = int.MinValue;
 
-    private readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C, Color Tint);
-    private readonly record struct Tree(Vector3 Ground, float Height, Color Foliage);
+    private readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C, Vector3 Normal, Color BaseColor);
+    private readonly record struct Tree(Vector3 Ground, float Height, Color Foliage, int Type, int Tiers);
+    private readonly record struct GrassTuft(Vector3 Position, float Size, Color Color);
+    private readonly record struct Boulder(Vector3 Position, float Radius, Color Color);
 
-    public TerrainRenderer(int seed)
+    public int Seed => _seed;
+    public int RenderDistanceKm => _renderDistanceKm;
+
+    public TerrainRenderer(int seed, int renderDistanceKm = 50)
     {
         _seed = seed;
+        _renderDistanceKm = renderDistanceKm;
     }
 
-    public void Draw(Vector3 focus, float timeOfDay)
+    public void SetWorld(int seed, int renderDistanceKm)
+    {
+        _seed = seed;
+        _renderDistanceKm = renderDistanceKm;
+        _centerTileX = int.MinValue;
+        _centerTileZ = int.MinValue;
+        _near.Clear();
+        _mid.Clear();
+        _far.Clear();
+        _horizon200km.Clear();
+        _trees.Clear();
+        _grass.Clear();
+        _boulders.Clear();
+    }
+
+    public void SetRenderDistance(int renderDistanceKm)
+    {
+        if (_renderDistanceKm != renderDistanceKm)
+        {
+            _renderDistanceKm = renderDistanceKm;
+            _centerTileX = int.MinValue;
+            _centerTileZ = int.MinValue;
+        }
+    }
+
+    public void Draw(Vector3 focus, LightingContext lighting)
     {
         var tileX = (int)MathF.Floor(focus.X / NearTileSize);
         var tileZ = (int)MathF.Floor(focus.Z / NearTileSize);
@@ -36,17 +77,29 @@ public sealed class TerrainRenderer
             _centerTileZ = tileZ;
         }
 
-        DrawTriangles(_far, focus, true);
-        DrawTriangles(_near, focus, false);
-        DrawTrees(focus, timeOfDay);
+        // Draw from far to near for depth and haze layering
+        DrawTriangles(_horizon200km, focus, true, lighting, 200_000f);
+        DrawTriangles(_far, focus, true, lighting, _renderDistanceKm * 1000f);
+        DrawTriangles(_mid, focus, true, lighting, _renderDistanceKm * 400f);
+        DrawTriangles(_near, focus, false, lighting, 1_000f);
+
+        // Draw natural world details
+        DrawBoulders(focus, lighting);
+        DrawGrassTufts(focus, lighting);
+        DrawTrees(focus, lighting);
     }
 
     private void BuildVisibleTerrain(int tileX, int tileZ)
     {
         _near.Clear();
+        _mid.Clear();
         _far.Clear();
+        _horizon200km.Clear();
         _trees.Clear();
+        _grass.Clear();
+        _boulders.Clear();
 
+        // 1. High-detail near grid (0 to 1 km radius)
         for (var tz = -NearRadius; tz <= NearRadius; tz++)
         {
             for (var tx = -NearRadius; tx <= NearRadius; tx++)
@@ -61,29 +114,44 @@ public sealed class TerrainRenderer
                 }
 
                 AddGridPatch(_near, x, z, NearTileSize, NearCells, 0, 0);
-                AddNearTrees(x, z, tileX, tileZ, tx, tz);
+                AddNearVegetationAndDetails(x, z, tileX, tileZ, tx, tz);
             }
         }
 
-        var rings = new[] { 1_000f, 2_200f, 4_200f, 7_400f, 11_000f };
+        // 2. Mid & Far radial concentric rings based on user Render Distance
         var farCenterX = (tileX + 0.5f) * NearTileSize;
         var farCenterZ = (tileZ + 0.5f) * NearTileSize;
         var sectorWidth = MathF.Tau / FarSectors;
-        for (var ring = 0; ring < rings.Length - 1; ring++)
+
+        var midOuter = Math.Max(3_500f, _renderDistanceKm * 280f);
+        var farOuter = Math.Max(10_000f, _renderDistanceKm * 1000f);
+
+        // Mid-range terrain ring
+        for (var sector = 0; sector < FarSectors; sector++)
         {
-            var inner = rings[ring];
-            var outer = rings[ring + 1];
-            var radialSteps = ring < 2 ? 3 : 2;
-            var angleSteps = 2;
-            for (var sector = 0; sector < FarSectors; sector++)
+            var startAngle = sector * sectorWidth;
+            AddRadialPatch(_mid, 1_000f, midOuter, startAngle, startAngle + sectorWidth, 3, 2, farCenterX, farCenterZ);
+            if (sector % 2 == 0)
             {
-                var startAngle = sector * sectorWidth;
-                AddRadialPatch(_far, inner, outer, startAngle, startAngle + sectorWidth, radialSteps, angleSteps, farCenterX, farCenterZ);
-                if (ring >= 2 && sector % 2 == 0)
-                {
-                    AddFarTree((inner + outer) * 0.5f, startAngle + sectorWidth * 0.5f, ring, sector, tileX, tileZ, farCenterX, farCenterZ);
-                }
+                AddMidTree((1_000f + midOuter) * 0.5f, startAngle + sectorWidth * 0.5f, sector, tileX, tileZ, farCenterX, farCenterZ);
             }
+        }
+
+        // Far mountain ranges ring (up to user render distance)
+        for (var sector = 0; sector < FarSectors; sector++)
+        {
+            var startAngle = sector * sectorWidth;
+            AddRadialPatch(_far, midOuter, farOuter, startAngle, startAngle + sectorWidth, 2, 2, farCenterX, farCenterZ);
+        }
+
+        // 3. Grand 200 km Continental Horizon Ring (extends out to 200,000 meters)
+        // Colossal alpine massifs rising thousands of meters above the distant atmospheric haze
+        var horizonInner = farOuter;
+        var horizonOuter = 200_000f; // 200 km
+        for (var sector = 0; sector < FarSectors; sector++)
+        {
+            var startAngle = sector * sectorWidth;
+            AddRadialPatch(_horizon200km, horizonInner, horizonOuter, startAngle, startAngle + sectorWidth, 2, 2, farCenterX, farCenterZ);
         }
     }
 
@@ -109,8 +177,8 @@ public sealed class TerrainRenderer
                 var b = vertices[z * (cells + 1) + x + 1];
                 var c = vertices[(z + 1) * (cells + 1) + x];
                 var d = vertices[(z + 1) * (cells + 1) + x + 1];
-                AddLitTriangle(target, a, c, b);
-                AddLitTriangle(target, b, c, d);
+                AddTriangle(target, a, c, b);
+                AddTriangle(target, b, c, d);
             }
         }
     }
@@ -126,7 +194,7 @@ public sealed class TerrainRenderer
                 var angle = Lerp(startAngle, endAngle, a / (float)angleSteps);
                 var x = centerX + MathF.Cos(angle) * radius;
                 var z = centerZ + MathF.Sin(angle) * radius;
-                vertices[r, a] = new Vector3(x, Height(x, z) - 3f, z); // sit slightly below the near terrain so the two layers don't z-fight
+                vertices[r, a] = new Vector3(x, Height(x, z) - 3f, z);
             }
         }
 
@@ -138,102 +206,247 @@ public sealed class TerrainRenderer
                 var v1 = vertices[r + 1, a];
                 var v2 = vertices[r, a + 1];
                 var v3 = vertices[r + 1, a + 1];
-                // Counter-clockwise when seen from above (the old order faced down and was backface-culled).
-                AddLitTriangle(target, v0, v2, v1);
-                AddLitTriangle(target, v2, v3, v1);
+                AddTriangle(target, v0, v2, v1);
+                AddTriangle(target, v2, v3, v1);
             }
         }
     }
 
-    private void AddLitTriangle(List<Triangle> target, Vector3 a, Vector3 b, Vector3 c)
+    private void AddTriangle(List<Triangle> target, Vector3 a, Vector3 b, Vector3 c)
     {
         var height = (a.Y + b.Y + c.Y) / 3f;
         var baseColor = TerrainColor(height);
-        var tint = Shade(baseColor, a, b, c);
-        target.Add(new Triangle(a, b, c, tint));
+        var ab = Subtract(b, a);
+        var ac = Subtract(c, a);
+        var normal = Normalize(Cross(ab, ac));
+        target.Add(new Triangle(a, b, c, normal, baseColor));
     }
 
-    private void AddNearTrees(int startX, int startZ, int centerX, int centerZ, int tileX, int tileZ)
+    private void AddNearVegetationAndDetails(int startX, int startZ, int centerX, int centerZ, int tileX, int tileZ)
     {
         var random = new Random(unchecked(_seed + (centerX + tileX) * 73856093 ^ (centerZ + tileZ) * 19349663));
-        for (var tree = 0; tree < 5; tree++)
+
+        // 1. Detailed Multi-Tiered Trees
+        for (var tree = 0; tree < 6; tree++)
         {
             var x = startX + (float)random.NextDouble() * NearTileSize;
             var z = startZ + (float)random.NextDouble() * NearTileSize;
-            if (MathF.Abs(x) < 25f)
-            {
-                continue;
-            }
+            if (MathF.Abs(x) < 14f) continue; // Keep track corridor clear
+
             var ground = new Vector3(x, Height(x, z), z);
-            var height = 9f + (float)random.NextDouble() * 17f;
-            var shade = random.Next(0, 28);
-            _trees.Add(new Tree(ground, height, new Color(35 + shade, 74 + shade, 61 + shade, 255)));
+            var height = 10f + (float)random.NextDouble() * 18f;
+            var treeType = random.Next(0, 4); // 0, 1, 2 = conifer varieties, 3 = alpine birch
+            var tiers = random.Next(3, 5);
+
+            Color foliage = treeType switch
+            {
+                0 => new Color(34, 76, 58, 255),  // Deep spruce
+                1 => new Color(48, 92, 54, 255),  // Alpine pine
+                2 => new Color(135, 112, 48, 255), // Autumn larch
+                _ => new Color(76, 124, 62, 255)   // Birch foliage
+            };
+
+            _trees.Add(new Tree(ground, height, foliage, treeType, tiers));
+        }
+
+        // 2. Procedural 3D Grass Tufts along rail embankment and meadows
+        for (var g = 0; g < 12; g++)
+        {
+            var gx = startX + (float)random.NextDouble() * NearTileSize;
+            var gz = startZ + (float)random.NextDouble() * NearTileSize;
+            if (MathF.Abs(gx) < 3.2f) continue; // Off the steel rails
+
+            var gy = Height(gx, gz);
+            var size = 0.55f + (float)random.NextDouble() * 0.75f;
+            var shade = random.Next(-18, 18);
+            var grassColor = new Color(78 + shade, 126 + shade, 54 + shade, 255);
+            _grass.Add(new GrassTuft(new Vector3(gx, gy, gz), size, grassColor));
+        }
+
+        // 3. Scattered Boulders & Field Stones
+        for (var b = 0; b < 2; b++)
+        {
+            var bx = startX + (float)random.NextDouble() * NearTileSize;
+            var bz = startZ + (float)random.NextDouble() * NearTileSize;
+            if (MathF.Abs(bx) < 6.5f) continue;
+
+            var by = Height(bx, bz);
+            var radius = 0.65f + (float)random.NextDouble() * 1.4f;
+            var shade = random.Next(-15, 20);
+            var rockColor = new Color(102 + shade, 105 + shade, 98 + shade, 255);
+            _boulders.Add(new Boulder(new Vector3(bx, by + radius * 0.4f, bz), radius, rockColor));
         }
     }
 
-    private void AddFarTree(float radius, float angle, int ring, int sector, int tileX, int tileZ, float centerX, float centerZ)
+    private void AddMidTree(float radius, float angle, int sector, int tileX, int tileZ, float centerX, float centerZ)
     {
         var x = centerX + MathF.Cos(angle) * radius;
         var z = centerZ + MathF.Sin(angle) * radius;
-        var random = new Random(unchecked(_seed * 31 + tileX * 374761393 + tileZ * 668265263 + ring * 7919 + sector * 104729));
-        var height = 28f + 62f * (float)random.NextDouble();
-        _trees.Add(new Tree(new Vector3(x, Height(x, z), z), height,
-            new Color(47, 69 + random.Next(0, 24), 65, 255)));
+        if (MathF.Abs(x) < 20f) return;
+
+        var random = new Random(unchecked(_seed * 31 + tileX * 374761393 + tileZ * 668265263 + sector * 104729));
+        var height = 24f + 48f * (float)random.NextDouble();
+        var foliage = new Color(42, 78 + random.Next(0, 22), 60, 255);
+        _trees.Add(new Tree(new Vector3(x, Height(x, z), z), height, foliage, 0, 3));
     }
 
-    private void DrawTriangles(List<Triangle> triangles, Vector3 focus, bool haze)
+    private void DrawTriangles(List<Triangle> triangles, Vector3 focus, bool haze, LightingContext lighting, float maxDist)
     {
         foreach (var triangle in triangles)
         {
-            var color = triangle.Tint;
+            var color = LightingEngine.ShadeSurface(triangle.BaseColor, triangle.Normal, triangle.A, lighting, 0.9f, 0.0f);
             if (haze)
             {
                 var centerX = (triangle.A.X + triangle.B.X + triangle.C.X) / 3f;
                 var centerZ = (triangle.A.Z + triangle.B.Z + triangle.C.Z) / 3f;
                 var distance = MathF.Sqrt(Sqr(centerX - focus.X) + Sqr(centerZ - focus.Z));
-                var fog = SmoothStep(2_700f, 11_000f, distance);
-                color = ColorLerp(color, new Color(133, 155, 161, 255), fog * 0.9f);
+                var fog = SmoothStep(2_500f, maxDist * 0.95f, distance);
+                color = LightingEngine.ColorLerp(color, lighting.FogColor, fog * 0.92f);
             }
             Raylib.DrawTriangle3D(triangle.A, triangle.B, triangle.C, color);
         }
     }
 
-    private void DrawTrees(Vector3 focus, float timeOfDay)
+    private void DrawBoulders(Vector3 focus, LightingContext lighting)
     {
-        var wind = MathF.Sin(timeOfDay * 0.7f) * 0.25f;
+        foreach (var rock in _boulders)
+        {
+            var dx = rock.Position.X - focus.X;
+            var dz = rock.Position.Z - focus.Z;
+            if (dx * dx + dz * dz > 250_000f) continue; // 500m cull
+
+            var litColor = LightingEngine.ShadeSurface(rock.Color, Vector3.UnitY, rock.Position, lighting, 0.8f, 0.1f);
+            Raylib.DrawSphere(rock.Position, rock.Radius, litColor);
+        }
+    }
+
+    private void DrawGrassTufts(Vector3 focus, LightingContext lighting)
+    {
+        var wind = MathF.Sin(lighting.TimeOfDay * 1.4f) * 0.12f;
+        foreach (var tuft in _grass)
+        {
+            var dx = tuft.Position.X - focus.X;
+            var dz = tuft.Position.Z - focus.Z;
+            if (dx * dx + dz * dz > 360_000f) continue; // 600m cull
+
+            var litColor = LightingEngine.ShadeSurface(tuft.Color, Vector3.UnitY, tuft.Position, lighting, 0.9f, 0f);
+            var pos = tuft.Position;
+            var h = tuft.Size;
+            var w = tuft.Size * 0.5f;
+
+            // 2 crossed triangular blades creating 3D grass tuft
+            var tipA = new Vector3(pos.X + wind, pos.Y + h, pos.Z);
+            var b1 = new Vector3(pos.X - w, pos.Y, pos.Z);
+            var b2 = new Vector3(pos.X + w, pos.Y, pos.Z);
+            Raylib.DrawTriangle3D(b1, tipA, b2, litColor);
+
+            var tipB = new Vector3(pos.X, pos.Y + h, pos.Z + wind);
+            var c1 = new Vector3(pos.X, pos.Y, pos.Z - w);
+            var c2 = new Vector3(pos.X, pos.Y, pos.Z + w);
+            Raylib.DrawTriangle3D(c1, tipB, c2, litColor);
+        }
+    }
+
+    private void DrawTrees(Vector3 focus, LightingContext lighting)
+    {
+        var wind = MathF.Sin(lighting.TimeOfDay * 0.8f) * 0.28f;
         foreach (var tree in _trees)
         {
             var dx = tree.Ground.X - focus.X;
             var dz = tree.Ground.Z - focus.Z;
             var distanceSquared = dx * dx + dz * dz;
-            if (distanceSquared > 121_000_000f)
-            {
-                continue;
-            }
+            if (distanceSquared > 121_000_000f) continue;
 
             var distance = MathF.Sqrt(distanceSquared);
-            var trunkColor = distance > 1_000 ? new Color(63, 73, 69, 255) : new Color(82, 65, 48, 255);
-            var lean = wind * Math.Clamp(tree.Height / 30f, 0.2f, 1f);
             var basePoint = tree.Ground;
-            var tip = new Vector3(basePoint.X + lean, basePoint.Y + tree.Height, basePoint.Z);
-            Raylib.DrawCylinderEx(basePoint, tip, MathF.Max(0.15f, tree.Height * 0.022f), 0.08f, 5, trunkColor);
+            var isBirch = tree.Type == 3;
 
-            var crown = new Vector3(basePoint.X + lean, basePoint.Y + tree.Height * 0.57f, basePoint.Z);
-            var crownHeight = tree.Height * 0.58f;
-            if (distance > 2_500)
+            // Trunk coloring
+            Color baseTrunk = isBirch
+                ? new Color(222, 218, 206, 255) // Pale birch bark
+                : (distance > 1_000 ? new Color(63, 73, 69, 255) : new Color(82, 65, 48, 255)); // Pine bark
+
+            var trunkColor = LightingEngine.ShadeSurface(baseTrunk, Vector3.UnitY, basePoint, lighting, 0.85f, 0f);
+            var foliageColor = LightingEngine.ShadeSurface(tree.Foliage, Vector3.UnitY, basePoint, lighting, 0.8f, 0f);
+
+            if (distance > 2_500f)
             {
-                crownHeight *= 1.25f;
+                var fog = SmoothStep(2_500f, 11_000f, distance);
+                trunkColor = LightingEngine.ColorLerp(trunkColor, lighting.FogColor, fog * 0.88f);
+                foliageColor = LightingEngine.ColorLerp(foliageColor, lighting.FogColor, fog * 0.88f);
             }
-            Raylib.DrawCylinderEx(crown, new Vector3(crown.X + lean, crown.Y + crownHeight, crown.Z),
-                tree.Height * 0.22f, 0f, 5, tree.Foliage);
+
+            var lean = wind * Math.Clamp(tree.Height / 30f, 0.2f, 1f);
+            var tip = new Vector3(basePoint.X + lean, basePoint.Y + tree.Height, basePoint.Z);
+
+            // Trunk
+            var trunkRadius = MathF.Max(0.18f, tree.Height * 0.024f);
+            Raylib.DrawCylinderEx(basePoint, tip, trunkRadius, 0.06f, 6, trunkColor);
+
+            if (isBirch)
+            {
+                // Deciduous Birch rounded puff canopy
+                var crownY = basePoint.Y + tree.Height * 0.65f;
+                var puffPos = new Vector3(basePoint.X + lean, crownY, basePoint.Z);
+                Raylib.DrawSphere(puffPos, tree.Height * 0.35f, foliageColor);
+                Raylib.DrawSphere(new Vector3(puffPos.X + 0.3f, crownY + tree.Height * 0.2f, puffPos.Z), tree.Height * 0.24f, foliageColor);
+            }
+            else
+            {
+                // Multi-tiered Conifer (3 to 4 conical needle layers)
+                var tiers = Math.Clamp(tree.Tiers, 3, 5);
+                var tierStart = tree.Height * 0.35f;
+                var tierStep = (tree.Height - tierStart) / tiers;
+
+                for (var t = 0; t < tiers; t++)
+                {
+                    var bottomY = basePoint.Y + tierStart + t * tierStep;
+                    var topY = bottomY + tierStep * 1.35f;
+                    var tierWidth = (tree.Height * 0.28f) * (1f - (float)t / tiers * 0.65f);
+
+                    var bPos = new Vector3(basePoint.X + lean * ((float)t / tiers), bottomY, basePoint.Z);
+                    var tPos = new Vector3(basePoint.X + lean * ((float)(t + 1) / tiers), topY, basePoint.Z);
+
+                    Raylib.DrawCylinderEx(bPos, tPos, tierWidth, 0.02f, 6, foliageColor);
+                }
+            }
         }
     }
 
-    private float Height(float x, float z)
+    // Natural route civil engineering: gentle undulating railway grade + cut/fill slopes
+    // Mountains now rise naturally in front, far away, across valleys, and in all directions!
+    public float Height(float x, float z)
     {
-        var generated = (float)ProceduralTerrain.Height(x, z, _seed);
-        var trackBlend = SmoothStep(18, 420, MathF.Abs(x));
-        return generated * trackBlend;
+        var rawTerrain = (float)ProceduralTerrain.Height(x, z, _seed);
+
+        // Railway grade: long gentle rolling gradient (spanning kilometers)
+        var railBed = RailGrade(z, _seed);
+
+        var absX = MathF.Abs(x);
+
+        // 1. Within 4.5m: flat railway ballast bed
+        if (absX <= 4.5f)
+        {
+            return railBed;
+        }
+
+        // 2. From 4.5m to 24m: engineered cut or fill embankment slope transitioning into wilderness
+        if (absX <= 24f)
+        {
+            var t = SmoothStep(4.5f, 24f, absX);
+            return Lerp(railBed, rawTerrain, t);
+        }
+
+        // 3. Beyond 24m: pure unconstrained natural geography! Mountains appear anywhere!
+        return rawTerrain;
+    }
+
+    public static float RailGrade(float z, int seed)
+    {
+        // Gentle undulating railway elevation spanning kilometers
+        var w1 = MathF.Sin(z * 0.00018f) * 35f;
+        var w2 = MathF.Sin(z * 0.00052f + 1.2f) * 14f;
+        return w1 + w2;
     }
 
     public float HeightAt(float worldX, float worldZ) => Height(worldX, worldZ);
@@ -242,23 +455,13 @@ public sealed class TerrainRenderer
     {
         if (height > 1_600)
         {
-            return ColorLerp(new Color(98, 100, 91, 255), new Color(226, 226, 216, 255), SmoothStep(1_600, 2_200, height));
+            return LightingEngine.ColorLerp(new Color(98, 100, 91, 255), new Color(226, 226, 216, 255), SmoothStep(1_600, 2_200, height));
         }
         if (height > 420)
         {
-            return ColorLerp(new Color(72, 83, 67, 255), new Color(111, 113, 101, 255), SmoothStep(420, 1_500, height));
+            return LightingEngine.ColorLerp(new Color(72, 83, 67, 255), new Color(111, 113, 101, 255), SmoothStep(420, 1_500, height));
         }
-        return ColorLerp(new Color(57, 78, 61, 255), new Color(93, 103, 78, 255), SmoothStep(-80, 420, height));
-    }
-
-    private static Color Shade(Color color, Vector3 a, Vector3 b, Vector3 c)
-    {
-        var ab = Subtract(b, a);
-        var ac = Subtract(c, a);
-        var normal = Normalize(Cross(ab, ac));
-        var sun = Normalize(new Vector3(-0.42f, 0.86f, -0.28f));
-        var diffuse = MathF.Max(0, Dot(normal, sun));
-        return ColorLerp(new Color(39, 47, 48, 255), color, 0.48f + diffuse * 0.54f);
+        return LightingEngine.ColorLerp(new Color(57, 78, 61, 255), new Color(93, 103, 78, 255), SmoothStep(-80, 420, height));
     }
 
     private static Vector3 Subtract(Vector3 a, Vector3 b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
@@ -276,9 +479,4 @@ public sealed class TerrainRenderer
         var t = Math.Clamp((value - a) / (b - a), 0, 1);
         return t * t * (3 - 2 * t);
     }
-    private static Color ColorLerp(Color a, Color b, float t) => new(
-        (byte)Math.Clamp((int)Lerp(a.R, b.R, t), 0, 255),
-        (byte)Math.Clamp((int)Lerp(a.G, b.G, t), 0, 255),
-        (byte)Math.Clamp((int)Lerp(a.B, b.B, t), 0, 255),
-        (byte)255);
 }

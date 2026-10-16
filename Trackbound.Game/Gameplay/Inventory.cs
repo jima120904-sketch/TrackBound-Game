@@ -33,6 +33,11 @@ public sealed class Inventory
 
     public bool Has(ItemId item, int amount) => amount >= 0 && Count(item) >= amount;
 
+    public void Clear()
+    {
+        _items.Clear();
+    }
+
     public bool Remove(ItemId item, int amount)
     {
         if (amount <= 0 || !Has(item, amount))
