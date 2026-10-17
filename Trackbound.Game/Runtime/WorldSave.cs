@@ -31,6 +31,7 @@ public sealed class WorldSaveData
     public float Yaw { get; set; } = 0f;
     public float Pitch { get; set; } = 0f;
     public bool IsOnTrain { get; set; } = true;
+    public bool TrainDoorOpen { get; set; } = false;
     public float Health { get; set; } = 100f;
     public float Hunger { get; set; } = 100f;
     public float Stamina { get; set; } = 100f;

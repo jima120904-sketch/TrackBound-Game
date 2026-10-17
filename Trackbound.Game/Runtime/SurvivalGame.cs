@@ -32,6 +32,7 @@ public sealed class SurvivalGame
     private float _hunger = 100;
     private float _stamina = 100;
     private float _trainZ;
+    private float _trainY;
     private float _timeOfDay = 12 * 60f;
     private float _elapsed;
     private float _attackCooldown;
@@ -41,14 +42,9 @@ public sealed class SurvivalGame
     private float _autosaveTimer = 60f;
     private string _message = "The cab is yours. Find supplies, craft gear, keep the train moving.";
     private bool _craftingOpen;
-    private bool _showDebug = true;
-    private int _mouseMode = 1; // 1 = raylib captured/raw mode (default), 0 = relative delta tracking
-    private bool _mouseReset = true;
-    private bool _wasFocused = true;
-    private Vector2 _lastMousePosition;
-    private Vector2 _debugRawMouse;
     private bool _inventoryOpen;
     private bool _isOnTrain = true;
+    private bool _trainDoorOpen = false;
     private int _recipeIndex;
     private int _resourceCenterX = int.MinValue;
     private int _resourceCenterZ = int.MinValue;
@@ -128,6 +124,7 @@ public sealed class SurvivalGame
         _yaw = world.Yaw;
         _pitch = world.Pitch;
         _isOnTrain = world.IsOnTrain;
+        _trainDoorOpen = world.TrainDoorOpen;
         _health = world.Health;
         _hunger = world.Hunger;
         _stamina = world.Stamina;
@@ -187,6 +184,7 @@ public sealed class SurvivalGame
         world.Yaw = _yaw;
         world.Pitch = _pitch;
         world.IsOnTrain = _isOnTrain;
+        world.TrainDoorOpen = _trainDoorOpen;
         world.Health = _health;
         world.Hunger = _hunger;
         world.Stamina = _stamina;
@@ -208,63 +206,26 @@ public sealed class SurvivalGame
         WorldSaveManager.SaveWorld(world);
     }
 
+    private const float MouseSensitivity = 0.0025f;
+    private const float MinPitch = -1.45f;
+    private const float MaxPitch = 1.45f;
+
     private void ApplyMouseMode()
     {
-        if (_mouseMode == 1)
-        {
-            Raylib.DisableCursor();
-        }
-        else
-        {
-            Raylib.EnableCursor();
-            Raylib.HideCursor();
-            _lastMousePosition = Raylib.GetMousePosition();
-        }
-        _mouseReset = true;
-        Raylib.GetMouseDelta();
+        Raylib.DisableCursor();
+        Raylib.HideCursor();
+        Raylib.GetMouseDelta(); // clear the initial delta so the first look is clean
     }
 
     private Vector2 ReadMouseLook()
     {
         if (!Raylib.IsWindowFocused() || _craftingOpen || _inventoryOpen)
         {
-            _mouseReset = true;
             return Vector2.Zero;
         }
 
-        if (_mouseMode == 1)
-        {
-            var raw = Raylib.GetMouseDelta();
-            if (_mouseReset)
-            {
-                _mouseReset = false;
-                return Vector2.Zero;
-            }
-            return raw;
-        }
-
-        // Mode 0: relative tracking using delta from previous frame (never drifts)
-        var position = Raylib.GetMousePosition();
-        if (_mouseReset)
-        {
-            _mouseReset = false;
-            _lastMousePosition = position;
-            return Vector2.Zero;
-        }
-
-        var delta = position - _lastMousePosition;
-        _lastMousePosition = position;
-
-        var screenW = Raylib.GetScreenWidth();
-        var screenH = Raylib.GetScreenHeight();
-        if (position.X < 50 || position.X > screenW - 50 || position.Y < 50 || position.Y > screenH - 50)
-        {
-            var center = new Vector2(screenW / 2f, screenH / 2f);
-            Raylib.SetMousePosition((int)center.X, (int)center.Y);
-            _lastMousePosition = center;
-        }
-
-        return delta;
+        // Captured cursor raw delta: the standard FPS look mechanism.
+        return Raylib.GetMouseDelta();
     }
 
     private void SeedInventory()
@@ -386,38 +347,12 @@ public sealed class SurvivalGame
         _train.SetControls(_throttle, _brake);
         _train.Tick(delta);
         _trainZ += (float)_train.SpeedMetersPerSecond * delta;
+        _trainY = TerrainRenderer.RailGrade(_trainZ, _terrain.Seed);
     }
 
     private void UpdatePlayer(float delta)
     {
-        if (Raylib.IsKeyPressed(KeyboardKey.F3))
-        {
-            _showDebug = !_showDebug;
-        }
-        if (Raylib.IsKeyPressed(KeyboardKey.F4))
-        {
-            _mouseMode = 1 - _mouseMode;
-            ApplyMouseMode();
-        }
-
-        var isFocused = Raylib.IsWindowFocused();
-        if (isFocused != _wasFocused)
-        {
-            _wasFocused = isFocused;
-            if (isFocused && !_craftingOpen && !_inventoryOpen)
-            {
-                ApplyMouseMode();
-            }
-            else
-            {
-                Raylib.EnableCursor();
-                Raylib.ShowCursor();
-            }
-            _mouseReset = true;
-        }
-
         var mouse = ReadMouseLook();
-        _debugRawMouse = mouse;
         // Ignore absurd single-frame jumps (focus changes, broken pointer devices, hitches).
         if (MathF.Abs(mouse.X) > 400f || MathF.Abs(mouse.Y) > 400f)
         {
@@ -425,14 +360,8 @@ public sealed class SurvivalGame
         }
         mouse = new Vector2(Math.Clamp(mouse.X, -120f, 120f), Math.Clamp(mouse.Y, -120f, 120f));
         // Raylib is right-handed: with forward = +Z, screen-right is -X, so moving the mouse right must DEcrease yaw.
-        _yaw -= mouse.X * 0.0022f;
-        _pitch = Math.Clamp(_pitch - mouse.Y * 0.0022f, -1.36f, 1.36f);
-
-        // Keyboard look backup: Left/Right arrows turn, PageUp/PageDown look up/down.
-        var keyYaw = (Raylib.IsKeyDown(KeyboardKey.Left) ? 1f : 0f) - (Raylib.IsKeyDown(KeyboardKey.Right) ? 1f : 0f);
-        var keyPitch = (Raylib.IsKeyDown(KeyboardKey.PageUp) ? 1f : 0f) - (Raylib.IsKeyDown(KeyboardKey.PageDown) ? 1f : 0f);
-        _yaw += keyYaw * 1.8f * delta;
-        _pitch = Math.Clamp(_pitch + keyPitch * 1.2f * delta, -1.36f, 1.36f);
+        _yaw -= mouse.X * MouseSensitivity;
+        _pitch = Math.Clamp(_pitch - mouse.Y * MouseSensitivity, MinPitch, MaxPitch);
         _yaw = MathF.IEEERemainder(_yaw, MathF.Tau);
         var cosPitch = MathF.Cos(_pitch);
         _forward = Vector3.Normalize(new Vector3(MathF.Sin(_yaw) * cosPitch, MathF.Sin(_pitch), MathF.Cos(_yaw) * cosPitch));
@@ -459,7 +388,15 @@ public sealed class SurvivalGame
             _stamina = MathF.Min(100, _stamina + delta * 15);
         }
 
-        var floor = _isOnTrain ? 3.42f : TerrainHeight(_playerPosition.X, _playerPosition.Z) + 1.72f;
+        // While aboard, the player is kinematically coupled to the train: it moves with the train.
+        if (_isOnTrain)
+        {
+            _playerPosition.Z += (float)_train.SpeedMetersPerSecond * delta;
+            // Keep the player inside the train car width (train hitbox containment).
+            _playerPosition.X = Math.Clamp(_playerPosition.X, -1.45f, 1.45f);
+        }
+
+        var floor = _isOnTrain ? _trainY + 3.42f : TerrainHeight(_playerPosition.X, _playerPosition.Z) + 1.72f;
         _playerPosition.Y = floor;
         _camera.Position = _playerPosition;
         _camera.Target = _playerPosition + _forward;
@@ -614,7 +551,6 @@ public sealed class SurvivalGame
         {
             ApplyMouseMode();
         }
-        _mouseReset = true;
     }
 
     private void Interact()
@@ -642,6 +578,14 @@ public sealed class SurvivalGame
                 ShowMessage("Coal fed to the firebox");
             }
             else ShowMessage("You need coal to feed the locomotive");
+            return;
+        }
+
+        var door = new Vector3(0, 2.8f, _trainZ - 8.5f);
+        if (Vector3.Distance(_playerPosition, door) < 4.5f)
+        {
+            _trainDoorOpen = !_trainDoorOpen;
+            ShowMessage(_trainDoorOpen ? "Door opened" : "Door closed");
             return;
         }
         ShowMessage("Nothing close enough to use");
@@ -740,13 +684,14 @@ public sealed class SurvivalGame
             }
             _isOnTrain = false;
             _playerPosition.X = 3.8f;
+            _playerPosition.Z = _trainZ - 8.5f;
             ShowMessage("You stepped down beside the train");
         }
         else if (distance < 12 && _train.SpeedMetersPerSecond < 8)
         {
             _isOnTrain = true;
             _playerPosition.X = 0;
-            _playerPosition.Z = _trainZ - 5.1f;
+            _playerPosition.Z = _trainZ - 8.5f;
             ShowMessage("Back aboard");
         }
         else ShowMessage("Move close to the stopped train to board");
@@ -781,14 +726,13 @@ public sealed class SurvivalGame
         Raylib.BeginMode3D(_camera);
         LightingEngine.DrawCelestialAndAtmosphere(lighting, _playerPosition);
         _terrain.Draw(_playerPosition, lighting);
-        _trainRenderer.Draw(_trainZ, (float)_train.SpeedMetersPerSecond, lighting);
+        _trainRenderer.Draw(_trainZ, (float)_train.SpeedMetersPerSecond, _trainDoorOpen, _trainY, _terrain.Seed, lighting);
         DrawResources(lighting);
         DrawEnemies(lighting);
         if (_tracerTimer > 0) Raylib.DrawLine3D(_tracerStart, _tracerEnd, new Color(255, 203, 120, 255));
         Raylib.EndMode3D();
 
         DrawHud();
-        if (_showDebug) DrawDebug(lighting);
 
         // Draw pause menu overlay on top of the 3D scene
         if (_menu.State == MenuState.PauseMenu)
@@ -831,21 +775,6 @@ public sealed class SurvivalGame
             Raylib.DrawSphere(new Vector3(body.X - 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(255, 105, 30, 255));
             Raylib.DrawSphere(new Vector3(body.X + 0.12f, body.Y + 1.0f, body.Z + 0.28f), 0.045f, new Color(255, 105, 30, 255));
         }
-    }
-
-    private void DrawDebug(LightingContext lighting)
-    {
-        var y = Raylib.GetScreenHeight() - 195;
-        Raylib.DrawRectangle(18, y - 6, 620, 158, new Color(0, 0, 0, 170));
-        Raylib.DrawText($"DEBUG (F3 hides)  FPS {Raylib.GetFPS()}  focused {Raylib.IsWindowFocused()}", 28, y, 16, Color.Yellow);
-        Raylib.DrawText($"mouse mode {(_mouseMode == 1 ? "captured (raw)" : "relative (free)")} (F4 switches)  turn: Left/Right arrows, look: PgUp/PgDn", 28, y + 96, 14, Color.Yellow);
-        Raylib.DrawText($"lighting {lighting.HourOfDay:00.0}h  daylight {lighting.Daylight * 100:0}%  golden {lighting.GoldenHour * 100:0}%  night {lighting.Night * 100:0}%", 28, y + 24, 15, Color.Yellow);
-        Raylib.DrawText($"yaw {_yaw:0.00}  pitch {_pitch:0.00}", 28, y + 48, 16, Color.Yellow);
-        Raylib.DrawText($"pos {_playerPosition.X:0.0} {_playerPosition.Y:0.0} {_playerPosition.Z:0.0}", 28, y + 72, 16, Color.Yellow);
-        var worldInfo = _menu.ActiveWorld != null
-            ? $"world \"{_menu.ActiveWorld.WorldName}\"  seed {_menu.ActiveWorld.Seed}  render {_menu.RenderDistanceKm}km  horizon 200km"
-            : "world: default";
-        Raylib.DrawText(worldInfo, 28, y + 118, 14, Color.Yellow);
     }
 
     private void DrawHud()

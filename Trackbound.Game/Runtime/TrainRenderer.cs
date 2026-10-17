@@ -12,27 +12,32 @@ public sealed class TrainRenderer
     private static readonly Color Timber = new(108, 76, 52, 255);
     private static readonly Color Glass = new(92, 138, 148, 255);
 
-    public void Draw(float trainZ, float speed, LightingContext lighting)
+    public void Draw(float trainZ, float speed, bool doorOpen, float trainY, int seed, LightingContext lighting)
     {
-        DrawTrack(trainZ, lighting);
-        DrawLocomotive(trainZ, lighting);
+        DrawTrack(trainZ, seed, lighting);
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(0f, trainY, 0f);
+        DrawLocomotive(trainZ, doorOpen, lighting);
         DrawCarriage(trainZ - 14, "Cargo car", new Color(95, 80, 58, 255), false, lighting);
         DrawCarriage(trainZ - 29, "Workshop car", new Color(58, 82, 76, 255), true, lighting);
+        Rlgl.PopMatrix();
     }
 
-    private static void DrawTrack(float trainZ, LightingContext lighting)
+    private static void DrawTrack(float trainZ, int seed, LightingContext lighting)
     {
         var start = (int)MathF.Floor((trainZ - 180) / 4) * 4;
         for (var z = start; z < trainZ + 420; z += 4)
         {
-            LitCube(new Vector3(0, 0.12f, z), 3.15f, 0.2f, 0.28f, Timber, lighting, 0.85f, 0.0f);
+            var y = TerrainRenderer.RailGrade(z, seed);
+            LitCube(new Vector3(0, y + 0.12f, z), 3.15f, 0.2f, 0.28f, Timber, lighting, 0.85f, 0.0f);
         }
         // Steel Rails
-        LitCube(new Vector3(-0.76f, 0.38f, trainZ + 120), 0.15f, 0.24f, 600, WornSteel, lighting, 0.35f, 0.65f);
-        LitCube(new Vector3(0.76f, 0.38f, trainZ + 120), 0.15f, 0.24f, 600, WornSteel, lighting, 0.35f, 0.65f);
+        var railY = TerrainRenderer.RailGrade(trainZ, seed);
+        LitCube(new Vector3(-0.76f, railY + 0.38f, trainZ + 120), 0.15f, 0.24f, 600, WornSteel, lighting, 0.35f, 0.65f);
+        LitCube(new Vector3(0.76f, railY + 0.38f, trainZ + 120), 0.15f, 0.24f, 600, WornSteel, lighting, 0.35f, 0.65f);
     }
 
-    private static void DrawLocomotive(float z, LightingContext lighting)
+    private static void DrawLocomotive(float z, bool doorOpen, LightingContext lighting)
     {
         // Heavy Chassis Underframe
         LitCube(new Vector3(0, 1.25f, z), 3.3f, 0.7f, 14.2f, DarkSteel, lighting, 0.6f, 0.4f);
@@ -135,6 +140,12 @@ public sealed class TrainRenderer
 
         Coupler(new Vector3(0, 0.95f, z + 8.0f), 1, lighting);
         Coupler(new Vector3(0, 0.95f, z - 8.0f), -1, lighting);
+
+        // Rear vestibule door — player entry/exit. Slides open to the side.
+        var doorFrame = new Vector3(0, 2.8f, z - 8.5f);
+        LitCube(doorFrame, 1.4f, 2.3f, 0.12f, WornSteel, lighting, 0.45f, 0.5f); // frame
+        var doorSlabX = doorOpen ? 1.8f : 0f;
+        LitCube(new Vector3(doorSlabX, 2.8f, z - 8.5f), 1.2f, 2.1f, 0.08f, Paint, lighting, 0.5f, 0.2f); // slab
     }
 
     private static void DrawCarriage(float z, string name, Color color, bool workshop, LightingContext lighting)
